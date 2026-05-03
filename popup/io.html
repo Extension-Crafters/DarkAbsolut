@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>DarkAbsolut — Import / Export</title>
+  <link rel="stylesheet" href="popup.css" />
+  <link rel="stylesheet" href="io.css" />
+</head>
+<body class="io-body">
+  <header class="io-header">
+    <div class="da-logo" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="28" height="28"><path fill="currentColor" d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+    </div>
+    <div>
+      <h1>DarkAbsolut</h1>
+      <p class="io-sub">Import / Export settings</p>
+    </div>
+  </header>
+
+  <main class="io-main">
+    <section class="io-card">
+      <h2>Current state</h2>
+      <div class="io-stats">
+        <div class="io-stat">
+          <div class="io-stat-label">Global</div>
+          <div class="io-stat-value" id="cur-global">—</div>
+        </div>
+        <div class="io-stat">
+          <div class="io-stat-label">Disabled domains</div>
+          <div class="io-stat-value" id="cur-count">—</div>
+        </div>
+      </div>
+      <button id="btn-refresh" class="da-btn">Refresh</button>
+    </section>
+
+    <section class="io-card">
+      <h2>Export</h2>
+      <p class="io-desc">Download all current settings as a JSON file.</p>
+      <button id="btn-export" class="da-btn da-btn-block">Export to JSON</button>
+      <div id="export-msg" class="io-msg" role="status"></div>
+    </section>
+
+    <section class="io-card">
+      <h2>Import</h2>
+      <p class="io-desc">
+        Replaces <strong>all</strong> current settings with the file contents.
+        Any field missing from the file is reset to its default value.
+      </p>
+      <input type="file" id="import-file" accept="application/json,.json" />
+
+      <div class="io-progress" id="import-progress" hidden>
+        <ol class="io-steps">
+          <li data-step="read"><span class="io-step-dot"></span> Reading file</li>
+          <li data-step="parse"><span class="io-step-dot"></span> Parsing JSON</li>
+          <li data-step="validate"><span class="io-step-dot"></span> Validating entries</li>
+          <li data-step="clear"><span class="io-step-dot"></span> Clearing previous settings</li>
+          <li data-step="apply"><span class="io-step-dot"></span> Applying new settings</li>
+          <li data-step="done"><span class="io-step-dot"></span> Done</li>
+        </ol>
+      </div>
+
+      <div class="io-summary" id="import-summary" hidden>
+        <div class="io-stat">
+          <div class="io-stat-label">Previous domains cleared</div>
+          <div class="io-stat-value" id="sum-cleared">0</div>
+        </div>
+        <div class="io-stat">
+          <div class="io-stat-label">Domains found in file</div>
+          <div class="io-stat-value" id="sum-found">0</div>
+        </div>
+        <div class="io-stat">
+          <div class="io-stat-label">Domains imported</div>
+          <div class="io-stat-value" id="sum-imported">0</div>
+        </div>
+        <div class="io-stat">
+          <div class="io-stat-label">Skipped (invalid / duplicate)</div>
+          <div class="io-stat-value" id="sum-skipped">0</div>
+        </div>
+        <div class="io-stat">
+          <div class="io-stat-label">Global enabled</div>
+          <div class="io-stat-value" id="sum-global">—</div>
+        </div>
+      </div>
+
+      <div id="import-msg" class="io-msg" role="status"></div>
+    </section>
+  </main>
+
+  <script src="io.js"></script>
+</body>
+</html>

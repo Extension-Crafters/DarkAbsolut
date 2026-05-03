@@ -1,0 +1,19 @@
+/* DarkAbsolut - reference inversion stylesheet (kept for web_accessible use).
+   The active runtime CSS is injected by content.js so it can use the
+   data-darkabsolut attribute toggle. This file mirrors the rules. */
+
+html[data-darkabsolut="on"] {
+  filter: invert(1) hue-rotate(180deg) !important;
+  background-color: #ffffff !important;
+}
+html[data-darkabsolut="on"] img,
+html[data-darkabsolut="on"] picture,
+html[data-darkabsolut="on"] video,
+html[data-darkabsolut="on"] iframe,
+html[data-darkabsolut="on"] embed,
+html[data-darkabsolut="on"] object,
+html[data-darkabsolut="on"] canvas,
+html[data-darkabsolut="on"] svg image,
+html[data-darkabsolut="on"] [data-darkabsolut-bg="1"] {
+  filter: invert(1) hue-rotate(180deg) !important;
+}

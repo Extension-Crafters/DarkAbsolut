@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>DarkAbsolut</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header class="da-header">
+    <div class="da-logo" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+    </div>
+    <div class="da-title">
+      <div class="da-title-main">DarkAbsolut</div>
+      <div class="da-title-sub" id="da-host">—</div>
+    </div>
+  </header>
+
+  <nav class="da-tabs" role="tablist">
+    <button class="da-tab active" data-tab="settings" role="tab" aria-selected="true">Settings</button>
+    <button class="da-tab" data-tab="io" role="tab" aria-selected="false">Import / Export</button>
+  </nav>
+
+  <div class="da-tab-panel active" data-panel="settings">
+    <section class="da-row">
+      <div class="da-row-text">
+        <div class="da-row-title">Global</div>
+        <div class="da-row-desc" id="da-global-desc">Master kill switch for every site.</div>
+      </div>
+      <label class="da-switch">
+        <input type="checkbox" id="da-global" />
+        <span class="da-slider"></span>
+      </label>
+    </section>
+
+    <section class="da-row" id="da-domain-row">
+      <div class="da-row-text">
+        <div class="da-row-title">Enable on this site</div>
+        <div class="da-row-desc" id="da-domain-desc">Toggle off to disable on the current domain.</div>
+      </div>
+      <label class="da-switch">
+        <input type="checkbox" id="da-domain" />
+        <span class="da-slider"></span>
+      </label>
+    </section>
+
+    <section class="da-row da-row-sub" id="da-sub-row">
+      <div class="da-row-text">
+        <div class="da-row-title">Include subdomains</div>
+        <div class="da-row-desc" id="da-sub-desc">Apply the disable to all subdomains.</div>
+      </div>
+      <label class="da-switch">
+        <input type="checkbox" id="da-sub" />
+        <span class="da-slider"></span>
+      </label>
+    </section>
+  </div>
+
+  <div class="da-tab-panel" data-panel="io">
+    <section class="da-io">
+      <div class="da-row-title">Import / Export</div>
+      <div class="da-row-desc">
+        Opens a dedicated page in a new tab. File pickers and downloads
+        cannot run reliably from the popup itself (the popup closes as soon
+        as it loses focus).
+      </div>
+      <button id="da-open-io" class="da-btn da-btn-block">Open Import / Export page</button>
+    </section>
+  </div>
+
+  <footer class="da-footer">
+    <button id="da-reload" class="da-btn">Reload tab</button>
+    <span class="da-version">v1.0.0</span>
+  </footer>
+
+  <script src="popup.js"></script>
+</body>
+</html>
