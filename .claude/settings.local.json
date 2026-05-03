@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(curl -s -A \"Mozilla/5.0 \\(X11; Linux x86_64\\) AppleWebKit/537.36 \\(KHTML, like Gecko\\) Chrome/124.0.0.0 Safari/537.36\" \"https://redis.io/docs/latest/\")",
-      "Bash(curl -s \"https://redis.io/docs/latest/scss/style.min.ffd35a3be9b20fcc50a3caf3964670dfd229adc7a66c976768747546ae98a824.css\")"
-    ]
-  }
-}

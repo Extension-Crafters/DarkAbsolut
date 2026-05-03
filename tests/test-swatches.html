@@ -1,0 +1,57 @@
+<!DOCTYPE html><html><head>
+  <style>
+    body { font-family: monospace; font-size: 12px; margin: 12px; background: #111; color: #eee; }
+    h2 { margin: 16px 0 6px; color: #aaa; }
+    table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
+    td { padding: 6px 10px; border: 1px solid #333; }
+    td:first-child { width: 40%; }
+  </style></head><body>
+  <h2>Pre-processed elements: original → pre-lightened → final dark (after filter)</h2>
+  <table><thead><tr><th>Element</th><th>Pre-lightened (what CSS sees)</th><th>Final dark (after invert+hue-rotate)</th></tr></thead>
+  <tbody>
+      <tr>
+        <td style="background:rgb(228, 41, 30);color:#fff">a w-9/12 rounded border-redis-pen-600 bg-redis-red</td>
+        <td style="background:rgb(246, 225, 223)">&nbsp;</td>
+        <td style="background:rgb(32,11,9);color:#fff">rgb(32,11,9)</td>
+      </tr>
+      <tr>
+        <td style="background:rgb(228, 41, 30);color:#fff">a w-9/12 rounded border-redis-pen-600 bg-redis-red</td>
+        <td style="background:rgb(246, 225, 223)">&nbsp;</td>
+        <td style="background:rgb(32,11,9);color:#fff">rgb(32,11,9)</td>
+      </tr>
+      <tr>
+        <td style="background:rgb(228, 41, 30);color:#fff">a w-full rounded border border-redis-pen-600</td>
+        <td style="background:rgb(246, 225, 223)">&nbsp;</td>
+        <td style="background:rgb(32,11,9);color:#fff">rgb(32,11,9)</td>
+      </tr>
+      <tr>
+        <td style="background:rgb(228, 41, 30);color:#fff">a w-full rounded border border-redis-pen-600</td>
+        <td style="background:rgb(246, 225, 223)">&nbsp;</td>
+        <td style="background:rgb(32,11,9);color:#fff">rgb(32,11,9)</td>
+      </tr>
+      <tr>
+        <td style="background:rgb(228, 41, 30);color:#fff">a my-2 w-full rounded-md border</td>
+        <td style="background:rgb(246, 225, 223)">&nbsp;</td>
+        <td style="background:rgb(32,11,9);color:#fff">rgb(32,11,9)</td>
+      </tr>
+      <tr>
+        <td style="background:rgb(255, 68, 56);color:#fff">button font-mono button text-redis-ink-900 border</td>
+        <td style="background:rgb(246, 225, 223)">&nbsp;</td>
+        <td style="background:rgb(32,11,9);color:#fff">rgb(32,11,9)</td>
+      </tr></tbody></table>
+  <h2>Unhandled light backgrounds: original → final dark (direct filter)</h2>
+  <table><thead><tr><th>Original (computed bg)</th><th>Final dark</th></tr></thead>
+  <tbody>
+      <tr>
+        <td style="background:rgb(255, 255, 255)">rgb(255, 255, 255) — nav max-h-[calc(100vh-7rem)] min-h</td>
+        <td style="background:rgb(0,0,0);color:#fff">rgb(0,0,0)</td>
+      </tr>
+      <tr>
+        <td style="background:rgba(255, 255, 255, 0.75)">rgba(255, 255, 255, 0.75) — dl w-60 z-40 hidden</td>
+        <td style="background:rgb(0,0,0);color:#fff">rgb(0,0,0)</td>
+      </tr>
+      <tr>
+        <td style="background:rgb(249, 249, 249)">rgb(249, 249, 249) — div tab-nav</td>
+        <td style="background:rgb(6,6,6);color:#fff">rgb(6,6,6)</td>
+      </tr></tbody></table>
+  </body></html>

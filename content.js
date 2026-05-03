@@ -100,6 +100,18 @@
   }
 
   function effectiveBgColor() {
+    // 0) Semantic shortcut: if the primary content container has an explicitly
+    // dark background the page uses a dark theme. This handles sites like
+    // redis.io where white card components inside a dark <main> dominate the
+    // sample grid (pushing the dominant cluster to white) and cause the
+    // 40 % threshold check to return the wrong answer.
+    try {
+      const mainEl = document.querySelector('main, [role="main"]');
+      if (mainEl) {
+        const mc = parseColor(getComputedStyle(mainEl).backgroundColor);
+        if (mc && mc.a > 0.5 && isNeutralDark(mc)) return mc;
+      }
+    } catch (_) {}
     // 1) Viewport sampling: what the user actually sees.
     const samples = sampleViewportBgColors();
     if (samples.length >= 5) {
@@ -113,6 +125,21 @@
       let best = null;
       for (const e of buckets.values()) if (!best || e.n > best.n) best = e;
       if (best && best.n >= Math.ceil(samples.length * 0.4)) return best.c;
+      // Dominant cluster didn't reach 40 %. Sites using pure
+      // @media (prefers-color-scheme: dark) CSS (e.g. redis.io) apply dark
+      // backgrounds component-by-component while <body> stays bg-white, so
+      // white samples outnumber dark ones. If the OS is already in dark mode
+      // and ≥ 25 % of sampled elements carry a neutral-dark background, the
+      // page is already doing media-query dark mode — don't invert it.
+      try {
+        if (matchMedia('(prefers-color-scheme: dark)').matches) {
+          let darkCount = 0, darkSample = null;
+          for (const c of samples) {
+            if (isNeutralDark(c)) { darkCount++; if (!darkSample) darkSample = c; }
+          }
+          if (darkSample && darkCount >= Math.ceil(samples.length * 0.25)) return darkSample;
+        }
+      } catch (_) {}
     }
     // 2) Fallback: body / html background-color (legacy path).
     const candidates = [document.body, document.documentElement].filter(Boolean);
@@ -144,15 +171,25 @@
     }
     return false;
   }
-  // Treat as a real dark theme only if the background is BOTH dark AND
-  // near-neutral. A saturated dark-ish color (e.g. #2980b9 blue, dark green,
-  // burgundy) is a *colored* light/branded background, not a dark theme,
-  // and should still be inverted.
-  const DARK_LUM_MAX = 0.22;        // pure dark grays/blacks
-  const DARK_SAT_MAX = 0.25;        // near-neutral
+  // Treat as a real dark theme only if the background is dark AND
+  // sufficiently neutral. A saturated mid-luminance color (e.g. #2980b9 blue)
+  // is a branded light background and should still be inverted.
+  // Very dark colors (luminance < 0.04, near-black) are allowed higher
+  // saturation because even a chromatic near-black is clearly a dark theme
+  // background (e.g. rgb(9,26,35) = redis-ink-900, luminance ≈ 0.009,
+  // saturation ≈ 0.59 — it IS dark, the HSL formula overstates saturation
+  // at near-zero lightness).
+  const DARK_LUM_MAX = 0.22;
   function isNeutralDark(c) {
     if (!c) return false;
-    return luminance(c) < DARK_LUM_MAX && saturation(c) < DARK_SAT_MAX;
+    const lum = luminance(c);
+    if (lum >= DARK_LUM_MAX) return false;
+    const sat = saturation(c);
+    // Adaptive saturation ceiling: near-black colors can be chromatic and
+    // still qualify; as luminance rises toward the threshold, tighten the
+    // saturation limit so mid-luminance branded hues are rejected.
+    const maxSat = lum < 0.04 ? 0.80 : lum < 0.10 ? 0.45 : 0.25;
+    return sat < maxSat;
   }
   // Returns: true (dark), false (light), null (unknown / not enough info yet).
   function detectDarkState() {
@@ -267,6 +304,20 @@ html[${ATTR}="on"] *[style*="position:fixed"] {
 
   const ORIG_ATTR = "data-darkabsolut-bg-orig";
   const ORIG_COLOR_ATTR = "data-darkabsolut-color-orig";
+
+  // Walk ancestors looking for a darknative-tagged container. Elements inside
+  // such a container are double-inverted back to their original colors by the
+  // container's counter-filter, so pre-lightening is both unnecessary and
+  // harmful (it creates a compounded light artifact).
+  function hasNativeDarkAncestor(el) {
+    let cur = el.parentElement;
+    while (cur && cur !== document.documentElement) {
+      if (cur.hasAttribute("data-darkabsolut-darknative")) return true;
+      cur = cur.parentElement;
+    }
+    return false;
+  }
+
   // Saturated mid-lightness backgrounds (e.g. brand blue #459cd5, l~55%) are
   // barely darkened by `invert + hue-rotate(180)`. Pre-lighten the element's
   // background to ~92% lightness so the html-level invert flips it to ~8%
@@ -275,16 +326,32 @@ html[${ATTR}="on"] *[style*="position:fixed"] {
   // site originally used light text on its colored background.
   function preLightenIfSaturated(el, cs) {
     if (el.hasAttribute(ORIG_ATTR)) return;
+    if (hasNativeDarkAncestor(el)) return;
     const c = parseColor(cs.backgroundColor);
     if (!c || c.a < 0.5) return;
     const hsl = rgbToHsl(c);
-    // Skip very dark, very light, or near-grayscale colors (existing filter
-    // handles them well).
-    if (hsl.s < 0.30) return;
-    if (hsl.l < 0.18 || hsl.l > 0.85) return;
+    if (hsl.l < 0.18) return; // dark — tagNativeDarkBg or filter handles it
+
+    let targetS;
+    if (hsl.s >= 0.30 && hsl.l <= 0.85) {
+      // Original case: saturated mid-lightness background.
+      targetS = Math.min(hsl.s, 0.55);
+    } else if (hsl.s >= 0.30 && hsl.l > 0.85) {
+      // Near-white with a real color tint (previously skipped). Keep saturation
+      // so the hue survives invert+hue-rotate and gives a clearly-hued dark result.
+      targetS = Math.min(hsl.s, 0.60);
+    } else if (hsl.s >= 0.05 && hsl.l >= 0.65 && hsl.l <= 0.88) {
+      // Subtly-tinted light backgrounds (info boxes, light panels). Without this
+      // the filter collapses them to near-neutral black, losing all nuance.
+      // Amplify saturation so the tint survives the inversion pipeline.
+      targetS = Math.min(hsl.s * 3.0, 0.45);
+    } else {
+      return; // near-grayscale or extreme lightness — filter handles adequately
+    }
+
     const lightened = hslToRgbString({
       h: hsl.h,
-      s: Math.min(hsl.s, 0.55),
+      s: targetS,
       l: 0.92
     });
     el.setAttribute(ORIG_ATTR, el.style.getPropertyValue("background-color") || "");
@@ -320,6 +387,22 @@ html[${ATTR}="on"] *[style*="position:fixed"] {
     }
   }
 
+  // Returns true if any visible (not display:none/hidden) direct or nested
+  // child up to `depth` levels has a light opaque background. Used to detect
+  // wrapper elements whose counter-filter would double-invert a white panel
+  // inside them back to white (the cascade problem).
+  function hasVisibleLightDescendant(el, depth) {
+    for (const child of el.children) {
+      let cs;
+      try { cs = getComputedStyle(child); } catch (_) { continue; }
+      if (cs.display === "none" || cs.visibility === "hidden") continue;
+      const c = parseColor(cs.backgroundColor);
+      if (c && c.a > 0.4 && luminance(c) > 0.50) return true;
+      if (depth > 1 && hasVisibleLightDescendant(child, depth - 1)) return true;
+    }
+    return false;
+  }
+
   // Native-dark element detection: a child element with an already-dark,
   // near-neutral background (e.g. #10151b) shouldn't be inverted to white by
   // our page-level filter. Tag it so CSS re-inverts it back to dark.
@@ -327,21 +410,38 @@ html[${ATTR}="on"] *[style*="position:fixed"] {
     const c = parseColor(cs.backgroundColor);
     if (!c || c.a < 0.5) return false;
     if (el === document.documentElement || el === document.body) return false;
+    // Prevent nested darknative filters — two stacked counter-filters create
+    // unwanted triple-inversion on intermediate light-bg elements.
+    if (hasNativeDarkAncestor(el)) return false;
     const lum = luminance(c);
     const sat = saturation(c);
-    if (lum < 0.10 && sat < 0.35) {
+    // Use the same adaptive saturation ceiling as isNeutralDark so that
+    // chromatic near-black backgrounds (e.g. redis-ink-900 rgb(9,26,35),
+    // lum≈0.009, sat≈0.59) are correctly tagged and not inverted to light.
+    const maxSat = lum < 0.04 ? 0.80 : lum < 0.10 ? 0.45 : 0.25;
+    if (lum < 0.10 && sat < maxSat) {
+      // Don't tag a wrapper whose counter-filter would cascade and double-invert
+      // a visible white child (e.g. tab-content panel inside a dark codetabs div).
+      // Let the children be processed individually instead.
+      if (hasVisibleLightDescendant(el, 3)) return false;
       el.setAttribute("data-darkabsolut-darknative", "1");
       return true;
     }
     return false;
   }
 
+  // Form controls get browser-injected background-images (dropdown arrows,
+  // spinners) that don't need separate re-inversion — the html-level filter
+  // handles them correctly on its own.
+  const SKIP_BG_IMAGE_TAGS = new Set(["SELECT", "INPUT", "TEXTAREA"]);
+
   function processElement(el) {
     if (!el || el.nodeType !== 1) return;
     try {
       const cs = getComputedStyle(el);
       const bg = cs.backgroundImage;
-      if (bg && bg !== "none" && /url\(|gradient\(/i.test(bg)) {
+      if (bg && bg !== "none" && /url\(|gradient\(/i.test(bg) &&
+          !SKIP_BG_IMAGE_TAGS.has(el.tagName)) {
         el.setAttribute("data-darkabsolut-bg", "1");
       } else if (el.hasAttribute("data-darkabsolut-bg")) {
         el.removeAttribute("data-darkabsolut-bg");

@@ -1,3 +1,27 @@
+```text
+     *        .       .    *         .               .       *
+ .         *              .-""""-.         *      .        *
+                       .'  .  .   '.                   .
+    *       .         /  .        . \      *
+                     ;    .-""""-.   ;            .       *
+  .        *         |   /        \  |   .                     *
+             .       ;  |  O    O  | ;        *       .
+      *              \  ;   '--'   ; /                      .
+   .        .         '. '.      .' .'    *         .
+                        '. '----'  .'              *
+      *       .           '-....-'        .        .     *
+                             .                 *
+  .       *        .       .       *       .         .       *
+                                                             .
+                          o                *      .
+          *      .       /|\       .              .       *
+     .                    |                  .
+                 .       / \         *              *        .
+  __.__.____.____.____._______.____.____.____.____.____.__
+       D A R K     A B S O L U T
+    "he stood alone, and the moon answered in silence."
+```
+
 # DarkAbsolut
 
 # Description
@@ -69,7 +93,54 @@ popup/popup.html
 popup/popup.css
 popup/popup.js
 icons/icon.svg + icon{16,32,48,128}.png
+tests/                     (Playwright tests, see below)
+package-extension.sh       (builds DarkAbsolut.zip for distribution)
 ```
+
+## Running the tests
+
+All test assets live under `tests/`:
+
+```
+tests/test-dark.js                  Playwright runner (navigates a real page)
+tests/test-core.js                  Standalone inversion core, injected by the runner
+tests/screenshots/                  Generated output (screenshots + swatches, gitignored)
+tests/screenshots/test-result.png   Swatch screenshot written by the runner
+tests/screenshots/test-swatches.html Generated swatch comparison page
+```
+
+Install dependencies once, then run:
+
+```bash
+npm install
+npm test
+# equivalent to: node tests/test-dark.js
+```
+
+The runner launches headless Chromium via Playwright, loads a reference page,
+injects `tests/test-core.js`, and writes `tests/screenshots/test-result.png`
+plus an updated `tests/screenshots/test-swatches.html` for visual comparison.
+The `tests/screenshots/` folder is gitignored.
+
+On first run you may need the Playwright browser binaries:
+
+```bash
+npx playwright install chromium
+```
+
+## Packaging for distribution
+
+A shell script at the repo root builds a clean zip excluding `tests/`,
+`node_modules/`, `.claude/`, git metadata and diagnostic screenshots:
+
+```bash
+npm run package
+# or directly:
+./package-extension.sh
+```
+
+This produces `DarkAbsolut.zip` at the repo root, ready to upload to the
+Chrome Web Store or to submit to Mozilla via `web-ext sign`.
 
 ## Notes & limitations
 
