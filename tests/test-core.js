@@ -66,7 +66,7 @@
     style.textContent = [
       A + ' { filter: invert(1) hue-rotate(180deg) !important; }',
       ':where(' + A + ') { background-color: #ffffff; }',
-      [A + ' img', A + ' picture', A + ' video', A + ' iframe',
+      [A + ' img', A + ' picture', A + ' video',
        A + ' canvas', A + ' svg image',
        A + ' [data-darkabsolut-bg="1"]',
        A + ' [data-darkabsolut-darknative="1"]'].join(',') +

@@ -1,9 +1,5 @@
 // DarkAbsolut - Import/Export full-page logic
-const $ = (id) => document.getElementById(id);
-
-function send(msg) {
-  return new Promise((resolve) => chrome.runtime.sendMessage(msg, resolve));
-}
+const { $, send } = DAPopup;
 
 let currentState = { globalEnabled: true, disabledDomains: [] };
 
@@ -47,6 +43,9 @@ async function onExport() {
       globalEnabled: !!currentState.globalEnabled,
       disabledDomains: Array.isArray(currentState.disabledDomains)
         ? currentState.disabledDomains
+        : [],
+      noImageInversionDomains: Array.isArray(currentState.noImageInversionDomains)
+        ? currentState.noImageInversionDomains
         : []
     };
     const json = JSON.stringify(payload, null, 2);
@@ -111,6 +110,7 @@ async function onImportFile(e) {
 
     setStep("validate", "active");
     const v = validateEntries(data.disabledDomains);
+    const vNoImg = validateEntries(data.noImageInversionDomains);
     const globalEnabled = typeof data.globalEnabled === "boolean" ? data.globalEnabled : true;
     $("sum-found").textContent = String(v.found);
     $("sum-skipped").textContent = String(v.skipped);
@@ -123,7 +123,11 @@ async function onImportFile(e) {
     setStep("apply", "active");
     const r = await send({
       type: "IMPORT_SETTINGS",
-      data: { globalEnabled, disabledDomains: v.kept }
+      data: {
+        globalEnabled,
+        disabledDomains: v.kept,
+        noImageInversionDomains: vNoImg.kept
+      }
     });
     if (!r || !r.ok) throw new Error((r && r.error) || "Background rejected the import.");
     setStep("clear", "done");

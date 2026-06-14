@@ -41,9 +41,11 @@ switch and per-domain/subdomain disable.
 ## Features
 
 - **Automatic dark mode** via CSS `filter: invert(1) hue-rotate(180deg)` on
-  `<html>`, with re-inversion of media (images, videos, iframes, embeds,
-  canvases, SVG `<image>`) and elements with CSS background images so visual
-  content keeps its real colors.
+  `<html>`, with re-inversion of media (images, videos, embeds, canvases,
+  SVG `<image>`) and elements with CSS background images so visual content
+  keeps its real colors. Iframes are intentionally *not* counter-inverted
+  so HTML content embedded in same-origin iframes (e.g. Gmail message
+  bodies, compose windows) is darkened along with the rest of the page.
 - **Already-dark detection**: respects `color-scheme: dark` declared by the
   site and measures the effective background luminance of `html`/`body`.
 - **Popup UI**:
@@ -70,31 +72,46 @@ For permanent installation in Firefox, the extension must be signed by Mozilla
 
 ## How it works
 
-- `content.js` runs at `document_start` in every frame, asks the background
-  worker whether the URL is enabled, then once the body is available checks if
-  the page is already dark. If not, it injects a `<style>` and toggles
-  `<html data-darkabsolut="on">` to activate the inversion rules. A
-  `MutationObserver` keeps newly-inserted background-image elements re-inverted.
-- `background.js` stores state in `chrome.storage.local`:
-  ```
-  { globalEnabled: true, disabledDomains: [{ domain, includeSubdomains }] }
-  ```
-  It also updates the toolbar badge (`off`, `—`, or empty).
-- `popup/` provides the UI.
+The content script runs at `document_start` in every frame, asks the
+background worker whether the URL is enabled, then once the body is available
+checks if the page is already dark. If not, it injects a `<style>` and
+toggles `<html data-darkabsolut="on">` to activate the inversion rules. A
+`MutationObserver` keeps newly-inserted background-image elements re-inverted.
+
+The service worker stores state in `chrome.storage.local`:
+
+```
+{ globalEnabled: true, disabledDomains: [{ domain, includeSubdomains }] }
+```
+
+It also updates the toolbar badge (`off`, `—`, or empty).
 
 ## File layout
 
 ```
 manifest.json
-background.js
-content.js
-invert.css                 (reference; runtime CSS is injected by content.js)
-popup/popup.html
-popup/popup.css
-popup/popup.js
+src/
+  content/                    classic scripts injected in order by the manifest
+    00-namespace.js           shared `DA` namespace + attribute constants
+    colors.js                 pure color math (parse, luminance, HSL, …)
+    detect.js                 dark-theme detection (viewport sampling, fallbacks)
+    styles.js                 CSS generation + style-tag injection
+    elements.js               per-element tagging and pre-lightening
+    controller.js             lifecycle, observers, message handling
+  background/                 service worker, loaded as ES modules
+    index.js                  entry point (install hook, tab listeners)
+    storage.js                chrome.storage.local wrapper + defaults
+    matching.js               URL / hostname / disabled-list rules
+    badge.js                  toolbar badge updates
+    messaging.js              runtime message router
+popup/
+  popup.html  popup.css  popup.js     main popup UI
+  io.html     io.css     io.js        Import / Export page
+  shared.js                            $() / send() / active-tab helpers
+invert.css                   (reference; runtime CSS is injected by the content script)
 icons/icon.svg + icon{16,32,48,128}.png
-tests/                     (Playwright tests, see below)
-package-extension.sh       (builds DarkAbsolut.zip for distribution)
+tests/                       Playwright tests, see below
+package-extension.sh         builds DarkAbsolut.zip for distribution
 ```
 
 ## Running the tests
@@ -102,12 +119,22 @@ package-extension.sh       (builds DarkAbsolut.zip for distribution)
 All test assets live under `tests/`:
 
 ```
+tests/test-extension.js             End-to-end: loads the unpacked extension, checks invert on/off
 tests/test-dark.js                  Playwright runner (navigates a real page)
 tests/test-core.js                  Standalone inversion core, injected by the runner
+tests/visual-audit.js               Loads the real extension, screenshots fixtures (+ live
+                                    sites with --live) and scores darkness from real pixels
+tests/fixtures.js                   Synthetic header/banner patterns (regression fixtures)
+tests/diag.js                       Diagnose one URL: dumps the header element chain + screenshot
+tests/lib/png.js                    Dependency-free PNG decoder used by the visual audit
 tests/screenshots/                  Generated output (screenshots + swatches, gitignored)
 tests/screenshots/test-result.png   Swatch screenshot written by the runner
 tests/screenshots/test-swatches.html Generated swatch comparison page
 ```
+
+Headless note: the audit/diag harnesses load the unpacked extension via
+Playwright with `channel: 'chromium'` + `--headless=new`. The default
+`chrome-headless-shell` cannot load extensions, so that channel is required.
 
 Install dependencies once, then run:
 

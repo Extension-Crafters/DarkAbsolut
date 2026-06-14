@@ -10,8 +10,7 @@ rm -f "$OUT"
 # Files/folders to ship in the extension package.
 INCLUDE=(
   manifest.json
-  background.js
-  content.js
+  src
   invert.css
   popup
   icons

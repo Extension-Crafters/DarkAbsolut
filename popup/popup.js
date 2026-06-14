@@ -1,34 +1,37 @@
 // DarkAbsolut - popup UI logic
-const $ = (id) => document.getElementById(id);
+const { $, send, getActiveTab, hostFromUrl } = DAPopup;
 
 let currentTab = null;
 let currentHostname = "";
 let state = null;
 
-function send(msg) {
-  return new Promise((resolve) => chrome.runtime.sendMessage(msg, resolve));
+function findEntryIn(list, host) {
+  if (!list || !host) return null;
+  return list.find(e => e.domain.toLowerCase() === host) || null;
 }
 
-async function getActiveTab() {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  return tab || null;
-}
-
-function hostFromUrl(url) {
-  try { return new URL(url).hostname.toLowerCase(); } catch { return ""; }
-}
-
-function findEntry(host) {
-  if (!state || !host) return null;
-  return state.disabledDomains.find(e => e.domain.toLowerCase() === host) || null;
-}
-
-function isCoveredBySubdomainRule(host) {
-  if (!state || !host) return false;
-  return state.disabledDomains.some(e => {
+function isCoveredBySubdomainRuleIn(list, host) {
+  if (!list || !host) return false;
+  return list.some(e => {
     const d = (e.domain || "").toLowerCase();
     return e.includeSubdomains && d && host !== d && host.endsWith("." + d);
   });
+}
+
+function findEntry(host) {
+  return findEntryIn(state && state.disabledDomains, host);
+}
+
+function isCoveredBySubdomainRule(host) {
+  return isCoveredBySubdomainRuleIn(state && state.disabledDomains, host);
+}
+
+function findNoImgEntry(host) {
+  return findEntryIn(state && state.noImageInversionDomains, host);
+}
+
+function isCoveredByNoImgSubdomainRule(host) {
+  return isCoveredBySubdomainRuleIn(state && state.noImageInversionDomains, host);
 }
 
 function setDisabled(el, disabled) {
@@ -41,7 +44,8 @@ async function refresh() {
   const url = currentTab && currentTab.url || "";
   currentHostname = hostFromUrl(url);
   const r = await send({ type: "GET_FULL_STATE" });
-  state = (r && r.state) || { globalEnabled: true, disabledDomains: [] };
+  state = (r && r.state) || { globalEnabled: true, disabledDomains: [], noImageInversionDomains: [] };
+  if (!Array.isArray(state.noImageInversionDomains)) state.noImageInversionDomains = [];
 
   $("da-host").textContent = currentHostname || "(no site)";
   $("da-global").checked = !!state.globalEnabled;
@@ -66,6 +70,28 @@ async function refresh() {
     : coveredBySub
       ? "Disabled by a parent-domain rule."
       : `Toggle off to disable on ${currentHostname}.`;
+
+  // ── Don't-invert-images per-site option ────────────────────────────────
+  const noImgEntry = findNoImgEntry(currentHostname);
+  const coveredByNoImgSub = isCoveredByNoImgSubdomainRule(currentHostname);
+  const noImgActive = !!noImgEntry || coveredByNoImgSub;
+
+  $("da-noimg").checked = noImgActive;
+  $("da-noimg-sub").checked = !!(noImgEntry && noImgEntry.includeSubdomains);
+
+  // The image option only makes sense while the extension is actually
+  // active for this site (global on, not restricted, site not disabled).
+  const noImgCtrlsDisabled = !state.globalEnabled || restricted || siteDisabled || coveredByNoImgSub;
+  setDisabled($("da-noimg"), noImgCtrlsDisabled);
+  setDisabled($("da-noimg-sub"), noImgCtrlsDisabled || !noImgActive);
+
+  $("da-noimg-desc").textContent = restricted
+    ? "Not applicable on this page."
+    : siteDisabled
+      ? "Site-wide disable is on; image option not needed."
+      : coveredByNoImgSub
+        ? "Already enforced by a parent-domain rule."
+        : `Force natural images on ${currentHostname}.`;
 }
 
 async function onGlobalChange(e) {
@@ -92,6 +118,31 @@ async function onSubChange(e) {
   if (!entry) return; // only meaningful when site is disabled
   await send({
     type: "SET_DOMAIN_DISABLED",
+    hostname: currentHostname,
+    disabled: true,
+    includeSubdomains: e.target.checked
+  });
+  await refresh();
+}
+
+async function onNoImgChange(e) {
+  if (!currentHostname) return;
+  const includeSubdomains = $("da-noimg-sub").checked;
+  await send({
+    type: "SET_DOMAIN_IMAGE_INVERSION_DISABLED",
+    hostname: currentHostname,
+    disabled: e.target.checked,
+    includeSubdomains
+  });
+  await refresh();
+}
+
+async function onNoImgSubChange(e) {
+  if (!currentHostname) return;
+  const entry = findNoImgEntry(currentHostname);
+  if (!entry) return; // only meaningful when image-skip is on for this host
+  await send({
+    type: "SET_DOMAIN_IMAGE_INVERSION_DISABLED",
     hostname: currentHostname,
     disabled: true,
     includeSubdomains: e.target.checked
@@ -127,6 +178,8 @@ document.addEventListener("DOMContentLoaded", () => {
   $("da-global").addEventListener("change", onGlobalChange);
   $("da-domain").addEventListener("change", onDomainChange);
   $("da-sub").addEventListener("change", onSubChange);
+  $("da-noimg").addEventListener("change", onNoImgChange);
+  $("da-noimg-sub").addEventListener("change", onNoImgSubChange);
   $("da-reload").addEventListener("click", onReload);
   document.querySelectorAll(".da-tab").forEach(b => {
     b.addEventListener("click", () => activateTab(b.dataset.tab));

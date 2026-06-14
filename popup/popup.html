@@ -55,6 +55,28 @@
         <span class="da-slider"></span>
       </label>
     </section>
+
+    <section class="da-row" id="da-noimg-row">
+      <div class="da-row-text">
+        <div class="da-row-title">Force natural images</div>
+        <div class="da-row-desc" id="da-noimg-desc">Ensure every &lt;img&gt;, &lt;picture&gt; and background-image element keeps its original colors on this site, even ones the auto-heuristic would skip.</div>
+      </div>
+      <label class="da-switch">
+        <input type="checkbox" id="da-noimg" />
+        <span class="da-slider"></span>
+      </label>
+    </section>
+
+    <section class="da-row da-row-sub" id="da-noimg-sub-row">
+      <div class="da-row-text">
+        <div class="da-row-title">Include subdomains</div>
+        <div class="da-row-desc" id="da-noimg-sub-desc">Also force natural images on all subdomains.</div>
+      </div>
+      <label class="da-switch">
+        <input type="checkbox" id="da-noimg-sub" />
+        <span class="da-slider"></span>
+      </label>
+    </section>
   </div>
 
   <div class="da-tab-panel" data-panel="io">
@@ -74,6 +96,7 @@
     <span class="da-version">v1.0.0</span>
   </footer>
 
+  <script src="shared.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

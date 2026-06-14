@@ -11,13 +11,7 @@ node_modules/
 Thumbs.db
 
 # Test & diagnostic artefacts (screenshots, generated swatches)
-/*.png
 tests/screenshots/
-!icons/*.png
 
-# Packaged extension
-DarkAbsolut.zip
 *.zip
-
-# Logs
 *.log
