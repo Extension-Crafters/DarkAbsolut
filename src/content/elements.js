@@ -146,24 +146,27 @@
     }
   }
 
-  // Mean luminance of the (opaque-weighted) color stops in a CSS gradient
-  // string. Computed styles always express stops as rgb()/rgba(), so a plain
-  // scan over those is enough. Returns null when there are no usable stops or
-  // the gradient is mostly transparent (an overlay/scrim rather than a solid
-  // surface), in which case the caller should not treat it as light.
-  function gradientMeanLuminance(bg) {
+  // Stats over the color stops of a CSS gradient string. Computed styles
+  // always express stops as rgb()/rgba(), so a plain scan is enough. Returns:
+  //   • meanLum: opacity-weighted mean luminance, or null when the gradient is
+  //     mostly transparent (a faint tint/scrim rather than a solid surface) —
+  //     in which case its own luminance isn't a reliable "is it light" signal.
+  //   • maxAlpha: the peak stop opacity. Low values mean the gradient is a
+  //     near-transparent overlay that lets the element's background-color show
+  //     through (so the bg-color is the real surface).
+  function gradientStats(bg) {
     const matches = bg.match(/rgba?\([^)]*\)/gi);
-    if (!matches) return null;
-    let sumL = 0, sumA = 0;
+    if (!matches) return { meanLum: null, maxAlpha: 0 };
+    let sumL = 0, sumA = 0, maxAlpha = 0;
     for (const m of matches) {
       const c = parseColor(m);
       if (!c) continue;
       const a = c.a == null ? 1 : c.a;
       sumL += luminance(c) * a;
       sumA += a;
+      if (a > maxAlpha) maxAlpha = a;
     }
-    if (sumA < 0.5) return null; // mostly transparent — treat as overlay
-    return sumL / sumA;
+    return { meanLum: sumA < 0.5 ? null : sumL / sumA, maxAlpha };
   }
 
   // Media tags whose pixels are counter-inverted by the page CSS so they show
@@ -241,24 +244,29 @@
     const hasUrl = /url\(/i.test(bg);
     if (hasGradient) {
       if (!hasUrl) {
-        const meanLum = gradientMeanLuminance(bg);
+        const { meanLum, maxAlpha } = gradientStats(bg);
+        const bc = parseColor(cs.backgroundColor);
+        const opaqueLightBg =
+          bc && bc.a >= 0.8 && luminance(bc) >= LIGHT_GRADIENT_MIN_LUM;
+        // A near-transparent gradient is a decorative tint/scrim; the element's
+        // own background-color shows through it and is the real surface.
+        const faintGradient = maxAlpha < 0.5;
         // The element reads as a "light surface" — to be darkened by the page
         // filter rather than counter-inverted back to a bright block — when:
-        //   • the gradient itself is light (a decorative header/banner
-        //     gradient sitting behind text), or
-        //   • it is a light card with a merely-decorative gradient frame: an
-        //     opaque light background-color whose light surface is confirmed by
-        //     a visible light descendant (the inner content panel). Promo
-        //     banners (e.g. Firefox Relay) paint a colourful gradient border on
-        //     a white card; the gradient hides the bg-color, so we corroborate
-        //     "is a light card" with the descendant before trusting it — this
+        //   • the gradient itself is light (a decorative header/banner gradient
+        //     sitting behind text), or
+        //   • it is a light card: an opaque light background-color that is the
+        //     visible surface. We trust the bg-color directly when the gradient
+        //     is only a faint tint over it (ko-fi's white content wrapper with
+        //     rgba(…,0.03) overlays), and otherwise corroborate with a visible
+        //     light descendant — an opaque gradient hides the bg-color, but a
+        //     decorative gradient *frame* around a white card (Firefox Relay)
+        //     still leaves the inner light panel visible. The descendant gate
         //     avoids darkening a real opaque gradient surface that merely
         //     declares a light fallback background-color.
         const lightGradient = meanLum != null && meanLum >= LIGHT_GRADIENT_MIN_LUM;
-        const bc = parseColor(cs.backgroundColor);
-        const lightCard = bc && bc.a >= 0.8 &&
-          luminance(bc) >= LIGHT_GRADIENT_MIN_LUM &&
-          hasVisibleLightDescendant(el, 3);
+        const lightCard = opaqueLightBg &&
+          (faintGradient || hasVisibleLightDescendant(el, 3));
         // …but not when a large image fronts it — there the gradient is only a
         // fallback and dropping the counter-invert would un-darken the media.
         if ((lightGradient || lightCard) && !hasLargeMediaDescendant(el)) {

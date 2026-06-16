@@ -1,7 +1,7 @@
 {
   "fx_dark-bar": {
     "kind": "fixture",
-    "url": "http://127.0.0.1:42995/dark-bar",
+    "url": "http://127.0.0.1:35021/dark-bar",
     "rootAttr": "on",
     "navErr": null,
     "width": 1280,
@@ -15,7 +15,7 @@
   },
   "fx_light-gradient": {
     "kind": "fixture",
-    "url": "http://127.0.0.1:42995/light-gradient",
+    "url": "http://127.0.0.1:35021/light-gradient",
     "rootAttr": "on",
     "navErr": null,
     "width": 1280,
@@ -29,7 +29,7 @@
   },
   "fx_dark-gradient": {
     "kind": "fixture",
-    "url": "http://127.0.0.1:42995/dark-gradient",
+    "url": "http://127.0.0.1:35021/dark-gradient",
     "rootAttr": "on",
     "navErr": null,
     "width": 1280,
@@ -43,7 +43,7 @@
   },
   "fx_logo-bar": {
     "kind": "fixture",
-    "url": "http://127.0.0.1:42995/logo-bar",
+    "url": "http://127.0.0.1:35021/logo-bar",
     "rootAttr": "on",
     "navErr": null,
     "width": 1280,
@@ -57,7 +57,7 @@
   },
   "fx_tiled-tree": {
     "kind": "fixture",
-    "url": "http://127.0.0.1:42995/tiled-tree",
+    "url": "http://127.0.0.1:35021/tiled-tree",
     "rootAttr": "on",
     "navErr": null,
     "width": 1280,
@@ -65,6 +65,34 @@
     "overallLum": 0.0184,
     "brightFrac": 0.0161,
     "topBandLum": 0.018,
+    "brightBand": null,
+    "wantVisibleText": true,
+    "pass": true
+  },
+  "fx_gradient-frame": {
+    "kind": "fixture",
+    "url": "http://127.0.0.1:35021/gradient-frame",
+    "rootAttr": "on",
+    "navErr": null,
+    "width": 1280,
+    "height": 900,
+    "overallLum": 0.0407,
+    "brightFrac": 0.0353,
+    "topBandLum": 0.058,
+    "brightBand": null,
+    "wantDarkTop": true,
+    "pass": true
+  },
+  "fx_faint-tint": {
+    "kind": "fixture",
+    "url": "http://127.0.0.1:35021/faint-tint",
+    "rootAttr": "on",
+    "navErr": null,
+    "width": 1280,
+    "height": 900,
+    "overallLum": 0.0834,
+    "brightFrac": 0.0242,
+    "topBandLum": 0.07,
     "brightBand": null,
     "wantVisibleText": true,
     "pass": true
@@ -88,9 +116,9 @@
     "navErr": null,
     "width": 1280,
     "height": 900,
-    "overallLum": 0.0965,
-    "brightFrac": 0.0776,
-    "topBandLum": 0.049,
+    "overallLum": 0.0992,
+    "brightFrac": 0.0833,
+    "topBandLum": 0.055,
     "brightBand": null
   },
   "stackoverflow": {
@@ -100,8 +128,8 @@
     "navErr": null,
     "width": 1280,
     "height": 900,
-    "overallLum": 0.0083,
-    "brightFrac": 0.0071,
+    "overallLum": 0.0084,
+    "brightFrac": 0.0073,
     "topBandLum": 0,
     "brightBand": null
   },
@@ -112,8 +140,8 @@
     "navErr": null,
     "width": 1280,
     "height": 900,
-    "overallLum": 0.0472,
-    "brightFrac": 0.0169,
+    "overallLum": 0.0471,
+    "brightFrac": 0.0166,
     "topBandLum": 0.138,
     "brightBand": null
   },
@@ -124,9 +152,9 @@
     "navErr": null,
     "width": 1280,
     "height": 900,
-    "overallLum": 0.1269,
-    "brightFrac": 0.1027,
-    "topBandLum": 0.254,
+    "overallLum": 0.0998,
+    "brightFrac": 0.071,
+    "topBandLum": 0.252,
     "brightBand": {
       "y": 56,
       "h": 33,
@@ -140,14 +168,10 @@
     "navErr": null,
     "width": 1280,
     "height": 900,
-    "overallLum": 0.3609,
-    "brightFrac": 0.2624,
-    "topBandLum": 0.422,
-    "brightBand": {
-      "y": 111,
-      "h": 13,
-      "lum": 0.713
-    }
+    "overallLum": 0.3244,
+    "brightFrac": 0.2262,
+    "topBandLum": 0.31,
+    "brightBand": null
   },
   "ebay": {
     "kind": "live",
@@ -156,13 +180,13 @@
     "navErr": null,
     "width": 1280,
     "height": 900,
-    "overallLum": 0.291,
-    "brightFrac": 0.2054,
+    "overallLum": 0.212,
+    "brightFrac": 0.1332,
     "topBandLum": 0.053,
     "brightBand": {
-      "y": 652,
-      "h": 20,
-      "lum": 0.768
+      "y": 650,
+      "h": 68,
+      "lum": 0.639
     }
   },
   "imdb": {
@@ -184,10 +208,14 @@
     "navErr": null,
     "width": 1280,
     "height": 900,
-    "overallLum": 0.1578,
-    "brightFrac": 0.0809,
+    "overallLum": 0.2733,
+    "brightFrac": 0.1827,
     "topBandLum": 0.054,
-    "brightBand": null
+    "brightBand": {
+      "y": 230,
+      "h": 84,
+      "lum": 0.591
+    }
   },
   "cnn": {
     "kind": "live",
@@ -208,13 +236,13 @@
     "navErr": null,
     "width": 1280,
     "height": 900,
-    "overallLum": 0.3583,
-    "brightFrac": 0.3397,
-    "topBandLum": 0.735,
+    "overallLum": 0.3393,
+    "brightFrac": 0.3085,
+    "topBandLum": 0.704,
     "brightBand": {
       "y": 1,
       "h": 268,
-      "lum": 0.754
+      "lum": 0.738
     }
   },
   "weather": {
@@ -224,8 +252,8 @@
     "navErr": "page.goto: Timeout 45000ms exceeded.\nCall log:\n  - navigating to \"https://weather.com/\", waiting until \"load\"\n",
     "width": 1280,
     "height": 900,
-    "overallLum": 0.3167,
-    "brightFrac": 0.3046,
+    "overallLum": 0.3188,
+    "brightFrac": 0.3076,
     "topBandLum": 0.136,
     "brightBand": null
   },
@@ -236,9 +264,9 @@
     "navErr": null,
     "width": 1280,
     "height": 900,
-    "overallLum": 0.1262,
-    "brightFrac": 0.0629,
-    "topBandLum": 0.126,
+    "overallLum": 0.1346,
+    "brightFrac": 0.0706,
+    "topBandLum": 0.125,
     "brightBand": null
   },
   "apple": {
@@ -260,13 +288,13 @@
     "navErr": null,
     "width": 1280,
     "height": 900,
-    "overallLum": 0.1207,
-    "brightFrac": 0.075,
-    "topBandLum": 0.24,
+    "overallLum": 0.4014,
+    "brightFrac": 0.2487,
+    "topBandLum": 0.124,
     "brightBand": {
-      "y": 56,
-      "h": 18,
-      "lum": 0.617
+      "y": 666,
+      "h": 234,
+      "lum": 0.89
     }
   },
   "paypal": {
@@ -304,9 +332,9 @@
     "navErr": null,
     "width": 1280,
     "height": 900,
-    "overallLum": 0.0031,
-    "brightFrac": 0.0017,
-    "topBandLum": 0.007,
+    "overallLum": 0.0178,
+    "brightFrac": 0.0071,
+    "topBandLum": 0.01,
     "brightBand": null
   },
   "yahoo": {
@@ -316,10 +344,14 @@
     "navErr": null,
     "width": 1280,
     "height": 900,
-    "overallLum": 0.1376,
-    "brightFrac": 0.0518,
+    "overallLum": 0.2007,
+    "brightFrac": 0.1312,
     "topBandLum": 0.097,
-    "brightBand": null
+    "brightBand": {
+      "y": 782,
+      "h": 8,
+      "lum": 0.574
+    }
   },
   "reddit": {
     "kind": "live",
@@ -340,8 +372,8 @@
     "navErr": null,
     "width": 1280,
     "height": 900,
-    "overallLum": 0.008,
-    "brightFrac": 0.0066,
+    "overallLum": 0.0081,
+    "brightFrac": 0.0068,
     "topBandLum": 0,
     "brightBand": null
   },
@@ -352,8 +384,8 @@
     "navErr": null,
     "width": 1280,
     "height": 900,
-    "overallLum": 0.0075,
-    "brightFrac": 0.0064,
+    "overallLum": 0.0076,
+    "brightFrac": 0.0066,
     "topBandLum": 0,
     "brightBand": null
   },
@@ -392,14 +424,10 @@
     "navErr": null,
     "width": 1280,
     "height": 900,
-    "overallLum": 0.1672,
-    "brightFrac": 0.1253,
+    "overallLum": 0.1681,
+    "brightFrac": 0.1301,
     "topBandLum": 0.082,
-    "brightBand": {
-      "y": 762,
-      "h": 16,
-      "lum": 0.522
-    }
+    "brightBand": null
   },
   "indeed": {
     "kind": "live",
@@ -421,7 +449,7 @@
     "width": 1280,
     "height": 900,
     "overallLum": 0.0178,
-    "brightFrac": 0.0107,
+    "brightFrac": 0.0108,
     "topBandLum": 0.028,
     "brightBand": null
   },
@@ -432,8 +460,8 @@
     "navErr": null,
     "width": 1280,
     "height": 900,
-    "overallLum": 0.0081,
-    "brightFrac": 0.007,
+    "overallLum": 0.0082,
+    "brightFrac": 0.0072,
     "topBandLum": 0,
     "brightBand": null
   },
@@ -456,9 +484,9 @@
     "navErr": null,
     "width": 1280,
     "height": 900,
-    "overallLum": 0.401,
-    "brightFrac": 0.2502,
-    "topBandLum": 0.376,
+    "overallLum": 0.3987,
+    "brightFrac": 0.2305,
+    "topBandLum": 0.374,
     "brightBand": null
   },
   "tripadvisor": {
@@ -469,7 +497,7 @@
     "width": 1280,
     "height": 900,
     "overallLum": 0.014,
-    "brightFrac": 0.0069,
+    "brightFrac": 0.0068,
     "topBandLum": 0.014,
     "brightBand": null
   },
@@ -480,13 +508,13 @@
     "navErr": null,
     "width": 1280,
     "height": 900,
-    "overallLum": 0.4983,
-    "brightFrac": 0.1931,
+    "overallLum": 0.4811,
+    "brightFrac": 0.187,
     "topBandLum": 0.452,
     "brightBand": {
-      "y": 590,
-      "h": 67,
-      "lum": 0.802
+      "y": 657,
+      "h": 21,
+      "lum": 0.785
     }
   },
   "target": {
@@ -496,7 +524,7 @@
     "navErr": null,
     "width": 1280,
     "height": 900,
-    "overallLum": 0.3014,
+    "overallLum": 0.2941,
     "brightFrac": 0.2996,
     "topBandLum": 0.067,
     "brightBand": {
@@ -512,8 +540,8 @@
     "navErr": null,
     "width": 1280,
     "height": 900,
-    "overallLum": 0.0137,
-    "brightFrac": 0.0053,
+    "overallLum": 0.0136,
+    "brightFrac": 0.0051,
     "topBandLum": 0.008,
     "brightBand": null
   },
@@ -524,13 +552,13 @@
     "navErr": null,
     "width": 1280,
     "height": 900,
-    "overallLum": 0.2117,
+    "overallLum": 0.2119,
     "brightFrac": 0.0274,
     "topBandLum": 0.044,
     "brightBand": {
       "y": 789,
       "h": 11,
-      "lum": 0.517
+      "lum": 0.518
     }
   },
   "mozilla": {
@@ -540,13 +568,9 @@
     "navErr": null,
     "width": 1280,
     "height": 900,
-    "overallLum": 0.2346,
-    "brightFrac": 0.0861,
-    "topBandLum": 0.246,
-    "brightBand": {
-      "y": 132,
-      "h": 16,
-      "lum": 0.519
-    }
+    "overallLum": 0.22,
+    "brightFrac": 0.0855,
+    "topBandLum": 0.219,
+    "brightBand": null
   }
 }

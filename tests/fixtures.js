@@ -73,6 +73,21 @@ const GRADIENT_FRAME_CARD = `<!doctype html><html><head><meta charset=utf-8><tit
 .card{background:#fff;color:#15141a;padding:20px 24px;font:600 18px sans-serif}</style></head>
 <body><header class="frame"><div class="card">Relay works better with Firefox &nbsp; — &nbsp; Install Firefox</div></header>${PAGE_BODY}</body></html>`;
 
+// A full-page white content wrapper carrying several near-transparent gradient
+// tints (the ko-fi pattern: rgba(…,0.03)/rgba(…,0.05) overlays on a white
+// surface). The wrapper holds text directly (no light-bg child to corroborate),
+// so it reproduces the bug where such a wrapper was counter-inverted — reverting
+// the whole content area back to light. The faint gradient must be treated as a
+// tint over the white surface, so the wrapper darkens.
+const FAINT_TINT_WRAPPER = `<!doctype html><html><head><meta charset=utf-8><title>faint-tint</title>
+<style>html,body{margin:0;background:#fff}
+.wrap{background-color:#fff;background-image:linear-gradient(0deg,rgba(0,0,0,0.03),rgba(0,0,0,0.03)),
+  linear-gradient(0deg,rgba(70,124,235,0.05),rgba(70,124,235,0.05));min-height:100vh;
+  padding:24px;color:#222;font-family:sans-serif}</style></head>
+<body><div class="wrap"><h1>Content wrapper</h1>
+  ${'<p>Paragraph of content text inside the tinted white wrapper. </p>'.repeat(30)}
+</div></body></html>`;
+
 const PAGES = {
   '/dark-bar': DARK_BAR,
   '/light-gradient': LIGHT_GRADIENT_BAR,
@@ -80,6 +95,7 @@ const PAGES = {
   '/logo-bar': LOGO_BAR,
   '/tiled-tree': TILED_TREE_MENU,
   '/gradient-frame': GRADIENT_FRAME_CARD,
+  '/faint-tint': FAINT_TINT_WRAPPER,
 };
 
 // What we expect after DarkAbsolut runs.
@@ -93,6 +109,7 @@ const EXPECT = {
   '/logo-bar':       { wantDarkTop: true },
   '/tiled-tree':     { wantVisibleText: true },
   '/gradient-frame': { wantDarkTop: true },
+  '/faint-tint':     { wantVisibleText: true },
 };
 
 module.exports = { PAGES, EXPECT };

@@ -33,6 +33,9 @@ Turn off the light waiting to the end of humanity...
   
 [DarkAbsolut website](https://extension-crafters.github.io/DarkAbsolut/)
 
+**Install:** [Firefox Add-ons](https://addons.mozilla.org/firefox/addon/darkabsolut/)
+&middot; Chrome Web Store (pending review) &middot; or [load unpacked](#install-development).
+
 A cross-browser (Chrome / Firefox MV3) extension that automatically applies a
 dark theme to websites that don't already provide one. It uses smart detection
 to skip sites that are already dark, and offers a popup UI with a global kill
@@ -75,6 +78,10 @@ switch and per-domain/subdomain disable.
    it cannot be granted from the manifest.
 
 ### Firefox (≥ 121)
+
+Most users can install the published add-on directly from
+[Firefox Add-ons](https://addons.mozilla.org/firefox/addon/darkabsolut/). The
+steps below are for local development.
 
 Firefox needs the Firefox-flavoured `background`, so build the packages first:
 
