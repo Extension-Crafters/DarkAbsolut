@@ -175,6 +175,13 @@
   // element to count as "image-fronted".
   const MEDIA_COVER_RATIO = 0.35;
 
+  // True when the element's subtree contains any non-whitespace text. Used to
+  // tell a content container (whose real identity is its text) from a bare
+  // decorative tile. Short-circuits at the first non-space character.
+  function hasTextContent(el) {
+    try { return /\S/.test(el.textContent || ""); } catch (_) { return false; }
+  }
+
   // True when a descendant image/video/etc. covers a large fraction of `el`.
   // Such an element must keep the counter-invert filter: dropping it would
   // leave the (separately counter-inverted) child media double-inverted back
@@ -252,7 +259,19 @@
     const size = (cs.backgroundSize || "").toLowerCase();
     const coversViewport = /cover|contain|100%/.test(size);
     const isRepeating = repeat && repeat !== "no-repeat";
-    if (coversViewport || isRepeating) return true;
+    if (coversViewport) return true;
+
+    if (isRepeating) {
+      // A tiled/repeating background is almost always a decorative texture or
+      // connector pattern (tree-guide lines, separators, subtle textures). If
+      // the element also holds text, that text — not the tile — is its real
+      // content: counter-inverting the whole subtree would revert every
+      // descendant's text to its original (often dark) colour, making it
+      // invisible on the dark page (e.g. phpRedisAdmin's `repeat-y` tree
+      // <ul> hiding all key names). Let the page filter invert the tile
+      // instead. Only counter-invert a bare decorative tile with no text.
+      return !hasTextContent(el);
+    }
 
     // Small decorative icon — leave it untouched so the root invert can
     // flip the text color normally.

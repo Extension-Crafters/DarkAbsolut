@@ -201,8 +201,18 @@ async function shoot(context, url) {
       const entry = { kind: t.kind, url: t.url, rootAttr, navErr, ...(metrics || {}) };
       if (t.kind === 'fixture') {
         const exp = EXPECT[t.route];
-        entry.wantDarkTop = exp.wantDarkTop;
-        entry.pass = metrics ? (exp.wantDarkTop ? metrics.topBandLum < 0.4 : true) : false;
+        Object.assign(entry, exp);
+        if (!metrics) {
+          entry.pass = false;
+        } else if (exp.wantDarkTop) {
+          entry.pass = metrics.topBandLum < 0.4;
+        } else if (exp.wantVisibleText) {
+          // Dark page, but light text must be present (not counter-inverted to
+          // invisible). brightFrac collapses to ~0 when text is reverted dark.
+          entry.pass = metrics.overallLum < 0.4 && metrics.brightFrac > 0.01;
+        } else {
+          entry.pass = true;
+        }
       }
       report[t.name] = entry;
       console.log(metrics

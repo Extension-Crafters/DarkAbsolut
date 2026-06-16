@@ -43,20 +43,42 @@ header{background:#f7f7f7 url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.
   padding:18px 24px 18px 48px;color:#222;font:600 18px sans-serif}</style></head>
 <body><header>Logo brand nav</header>${PAGE_BODY}</body></html>`;
 
+// A left menu / tree whose nested lists carry a *repeating* (tiled) connector
+// background image and dark-text links — the phpRedisAdmin pattern. The whole
+// <ul> must NOT be counter-inverted: doing so reverts every link's dark text
+// back to dark, making it invisible on the dark page. After inversion the dark
+// link text must become light (visible).
+const TILED_TREE_MENU = `<!doctype html><html><head><meta charset=utf-8><title>tiled-tree</title>
+<style>html,body{margin:0;background:#fff;font:14px sans-serif}
+#sidebar{width:100%}
+#sidebar a{color:#000;text-decoration:none;display:block;padding:3px 0}
+ul{list-style:none;margin:0;padding-left:18px}
+ul ul{background:url('data:image/gif;base64,R0lGODlhAQAKAIABAMzMzP///yH5BAEAAAEALAAAAAABAAoAAAIEjI8ZBQA7') repeat-y}
+</style></head>
+<body><div id="sidebar"><ul>
+  <li><a href="#">Keys</a><ul>
+    ${Array.from({length:40}, (_,i)=>`<li><a href="#">menu_item_${i} link with dark text</a></li>`).join('')}
+  </ul></li>
+</ul></div></body></html>`;
+
 const PAGES = {
   '/dark-bar': DARK_BAR,
   '/light-gradient': LIGHT_GRADIENT_BAR,
   '/dark-gradient': DARK_GRADIENT_BAR,
   '/logo-bar': LOGO_BAR,
+  '/tiled-tree': TILED_TREE_MENU,
 };
 
-// What we expect of the top strip after DarkAbsolut runs.
-//   wantDarkTop: the header strip should be dark (low luminance).
+// What we expect after DarkAbsolut runs.
+//   wantDarkTop:      the header strip should be dark (low luminance).
+//   wantVisibleText:  the page is dark but light (visible) text must be present
+//                     — guards against text being counter-inverted to invisible.
 const EXPECT = {
   '/dark-bar':       { wantDarkTop: true },
   '/light-gradient': { wantDarkTop: true },
   '/dark-gradient':  { wantDarkTop: true },
   '/logo-bar':       { wantDarkTop: true },
+  '/tiled-tree':     { wantVisibleText: true },
 };
 
 module.exports = { PAGES, EXPECT };

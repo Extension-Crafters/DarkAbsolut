@@ -53,8 +53,14 @@ switch and per-domain/subdomain disable.
   - Disable on the current domain.
   - Optional "include subdomains".
   - Reload-tab convenience button.
-- **Cross-browser**: MV3 manifest with `browser_specific_settings.gecko` for
-  Firefox 121+ (MV3 with service worker support).
+- **Cross-browser**: the committed `manifest.json` targets Chrome/Chromium
+  (`background.service_worker`). Chrome rejects `background.scripts` and Firefox
+  rejects `background.service_worker`, so a single manifest can't satisfy both —
+  instead `package-extension.sh` emits a separate Firefox build whose
+  `background` block is a `scripts` event page (Firefox 121+ has no extension
+  service workers). It's the same ES-module entry point either way.
+  `browser_specific_settings.gecko` carries the add-on id, `strict_min_version`
+  and `data_collection_permissions` (none — no data is collected).
 
 ## Install (development)
 
@@ -66,11 +72,19 @@ switch and per-domain/subdomain disable.
 
 ### Firefox (≥ 121)
 
-1. Open `about:debugging#/runtime/this-firefox`.
-2. Click **Load Temporary Add-on…** and pick `manifest.json`.
+Firefox needs the Firefox-flavoured `background`, so build the packages first:
 
-For permanent installation in Firefox, the extension must be signed by Mozilla
-(`web-ext sign`) — the included gecko id is suitable.
+```bash
+./package-extension.sh
+```
+
+1. Open `about:debugging#/runtime/this-firefox`.
+2. Click **Load Temporary Add-on…** and pick `DarkAbsolut-firefox.zip`.
+
+Loading the repository's own `manifest.json` directly will fail with
+*"background.service_worker is currently disabled"* — that file targets Chrome.
+For permanent installation, sign the Firefox zip with Mozilla (`web-ext sign`);
+the included gecko id is suitable.
 
 ## How it works
 
@@ -113,7 +127,7 @@ popup/
 invert.css                   (reference; runtime CSS is injected by the content script)
 icons/icon.svg + icon{16,32,48,128}.png
 tests/                       Playwright tests, see below
-package-extension.sh         builds DarkAbsolut.zip for distribution
+package-extension.sh         builds per-browser zips (chrome / firefox)
 ```
 
 ## Running the tests
@@ -159,8 +173,10 @@ npx playwright install chromium
 
 ## Packaging for distribution
 
-A shell script at the repo root builds a clean zip excluding `tests/`,
-`node_modules/`, `.claude/`, git metadata and diagnostic screenshots:
+A shell script at the repo root stages a clean copy (only the shipped files —
+no `tests/`, `node_modules/`, `.claude/`, `docs/`, git metadata or screenshots)
+and writes **one zip per store**, each with the `background` block that browser
+accepts:
 
 ```bash
 npm run package
@@ -168,21 +184,15 @@ npm run package
 ./package-extension.sh
 ```
 
-This produces `DarkAbsolut.zip` at the repo root, ready to upload to the
-Chrome Web Store or to submit to Mozilla via `web-ext sign`.
+This produces, at the repo root:
 
-## Project website (GitHub Pages)
+- `DarkAbsolut-chrome.zip` — `background.service_worker`; upload to the Chrome
+  Web Store (also works for Edge / Brave).
+- `DarkAbsolut-firefox.zip` — `background.scripts` event page; submit to Mozilla
+  AMO or sign with `web-ext sign`.
 
-A static landing page lives in [`docs/`](docs/) (`index.html` + `style.css` +
-`assets/`). To publish it, open the repo's **Settings → Pages** and set the
-source to **Deploy from a branch**, branch `master`, folder `/docs`. It then
-serves at `https://extension-crafters.github.io/DarkAbsolut/`.
+Both are gitignored (`*.zip`).
 
-The page presents the project, its features and screenshots, and install
-instructions. Replace the `href="#"` placeholders on the “Add to Chrome / Firefox”
-buttons in `docs/index.html` with the real listing URLs once the extension is
-published. The page is excluded from the distributable zip by
-`package-extension.sh`.
 
 ## Notes & limitations
 
