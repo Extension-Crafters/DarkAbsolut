@@ -217,3 +217,8 @@ Both are gitignored (`*.zip`).
 - "Include subdomains" stores a single rule for the entered host that matches
   itself and any `*.host`. To remove a parent subdomain rule covering the
   current site, visit that parent host and toggle it off there.
+
+## Support
+
+DarkAbsolut is free and open source. If it saves your eyes, you can sponsor its
+development on [Ko-fi](https://ko-fi.com/extcrafters). Thank you! ☕
