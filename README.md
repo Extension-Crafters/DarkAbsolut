@@ -1,3 +1,5 @@
+# DarkAbsolut
+
 ```text
      *        .       .    *         .               .       *
  .         *              .-""""-.         *      .        *
@@ -22,17 +24,13 @@
     "he stood alone, and the moon answered in silence."
 ```
 
-# DarkAbsolut
-
-# Description
+## Description
 
 My eyes are worn...
-She brazenly plumbs the depths of the darkness that separates her from my pupil. 
+She brazenly plumbs the depths of the darkness that separates her from my pupil.  
 Please kill all the lights in this world!
 Turn off the light waiting to the end of humanity...
-
-*DarkAbsolut*
-
+  
 A cross-browser (Chrome / Firefox MV3) extension that automatically applies a
 dark theme to websites that don't already provide one. It uses smart detection
 to skip sites that are already dark, and offers a popup UI with a global kill
@@ -59,11 +57,13 @@ switch and per-domain/subdomain disable.
 ## Install (development)
 
 ### Chrome / Edge / Brave / Chromium
+
 1. Open `chrome://extensions`.
 2. Enable **Developer mode**.
 3. Click **Load unpacked** and select this folder.
 
 ### Firefox (≥ 121)
+
 1. Open `about:debugging#/runtime/this-firefox`.
 2. Click **Load Temporary Add-on…** and pick `manifest.json`.
 
@@ -80,7 +80,7 @@ toggles `<html data-darkabsolut="on">` to activate the inversion rules. A
 
 The service worker stores state in `chrome.storage.local`:
 
-```
+```json
 { globalEnabled: true, disabledDomains: [{ domain, includeSubdomains }] }
 ```
 
@@ -88,7 +88,7 @@ It also updates the toolbar badge (`off`, `—`, or empty).
 
 ## File layout
 
-```
+```text
 manifest.json
 src/
   content/                    classic scripts injected in order by the manifest
@@ -118,7 +118,7 @@ package-extension.sh         builds DarkAbsolut.zip for distribution
 
 All test assets live under `tests/`:
 
-```
+```text
 tests/test-extension.js             End-to-end: loads the unpacked extension, checks invert on/off
 tests/test-dark.js                  Playwright runner (navigates a real page)
 tests/test-core.js                  Standalone inversion core, injected by the runner
