@@ -3,11 +3,24 @@
 import { getState } from "./storage.js";
 
 // URLs we must never touch (browser chrome, extension internals, etc.).
+// Note: file:// is intentionally NOT restricted — local pages (saved HTML,
+// generated reports) benefit from dark mode too. Chrome still requires the
+// user to enable "Allow access to file URLs" in the extension details before
+// content scripts run on file:// pages; this only governs our own gating.
 const RESTRICTED_SCHEME_RE =
-  /^(chrome|edge|about|moz-extension|chrome-extension|view-source|file):/i;
+  /^(chrome|edge|about|moz-extension|chrome-extension|view-source):/i;
+
+// Stable pseudo-host for local file:// URLs (which have no real hostname) so
+// the empty-host guard, the popup label and per-"site" disable all work. All
+// local files share this single host. Keep in sync with popup/shared.js.
+export const LOCAL_FILE_HOST = "localfile";
 
 export function hostnameFromUrl(url) {
-  try { return new URL(url).hostname.toLowerCase(); } catch { return ""; }
+  try {
+    const u = new URL(url);
+    if (u.protocol === "file:") return LOCAL_FILE_HOST;
+    return u.hostname.toLowerCase();
+  } catch { return ""; }
 }
 
 // Naive eTLD+1 fallback: last two labels. Good enough for the "include

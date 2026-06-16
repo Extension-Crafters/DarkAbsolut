@@ -242,12 +242,26 @@
     if (hasGradient) {
       if (!hasUrl) {
         const meanLum = gradientMeanLuminance(bg);
-        // Light, opaque, gradient-only surface behind text (decorative header /
-        // banner gradient): let the page filter darken it. But not when a large
-        // image fronts it — there the gradient is only a fallback and dropping
-        // the counter-invert would un-darken the child media.
-        if (meanLum != null && meanLum >= LIGHT_GRADIENT_MIN_LUM &&
-            !hasLargeMediaDescendant(el)) {
+        // The element reads as a "light surface" — to be darkened by the page
+        // filter rather than counter-inverted back to a bright block — when:
+        //   • the gradient itself is light (a decorative header/banner
+        //     gradient sitting behind text), or
+        //   • it is a light card with a merely-decorative gradient frame: an
+        //     opaque light background-color whose light surface is confirmed by
+        //     a visible light descendant (the inner content panel). Promo
+        //     banners (e.g. Firefox Relay) paint a colourful gradient border on
+        //     a white card; the gradient hides the bg-color, so we corroborate
+        //     "is a light card" with the descendant before trusting it — this
+        //     avoids darkening a real opaque gradient surface that merely
+        //     declares a light fallback background-color.
+        const lightGradient = meanLum != null && meanLum >= LIGHT_GRADIENT_MIN_LUM;
+        const bc = parseColor(cs.backgroundColor);
+        const lightCard = bc && bc.a >= 0.8 &&
+          luminance(bc) >= LIGHT_GRADIENT_MIN_LUM &&
+          hasVisibleLightDescendant(el, 3);
+        // …but not when a large image fronts it — there the gradient is only a
+        // fallback and dropping the counter-invert would un-darken the media.
+        if ((lightGradient || lightCard) && !hasLargeMediaDescendant(el)) {
           return false;
         }
       }

@@ -69,6 +69,10 @@ switch and per-domain/subdomain disable.
 1. Open `chrome://extensions`.
 2. Enable **Developer mode**.
 3. Click **Load unpacked** and select this folder.
+4. *(Optional)* To dark-mode local `file://` pages (saved HTML, generated
+   reports), open the extension's **Details** and enable **Allow access to file
+   URLs**. Chrome requires this toggle for any extension to run on `file://`;
+   it cannot be granted from the manifest.
 
 ### Firefox (≥ 121)
 

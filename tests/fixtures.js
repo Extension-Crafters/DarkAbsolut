@@ -61,12 +61,25 @@ ul ul{background:url('data:image/gif;base64,R0lGODlhAQAKAIABAMzMzP///yH5BAEAAAEA
   </ul></li>
 </ul></div></body></html>`;
 
+// A white "card" banner whose only background-IMAGE is a mid-luminance,
+// multi-stop brand gradient used as a thin decorative frame (the Firefox Relay
+// promo-banner pattern). The visible surface is the white background-color, so
+// the card must darken — not be counter-inverted back to a bright block by the
+// presence of the gradient.
+const GRADIENT_FRAME_CARD = `<!doctype html><html><head><meta charset=utf-8><title>gradient-frame</title>
+<style>html,body{margin:0;background:#fff}
+.frame{background:#ffffff linear-gradient(-90deg,#ff9100 0%,#f10366 50%,#6173ff 100%);
+  padding:4px}
+.card{background:#fff;color:#15141a;padding:20px 24px;font:600 18px sans-serif}</style></head>
+<body><header class="frame"><div class="card">Relay works better with Firefox &nbsp; — &nbsp; Install Firefox</div></header>${PAGE_BODY}</body></html>`;
+
 const PAGES = {
   '/dark-bar': DARK_BAR,
   '/light-gradient': LIGHT_GRADIENT_BAR,
   '/dark-gradient': DARK_GRADIENT_BAR,
   '/logo-bar': LOGO_BAR,
   '/tiled-tree': TILED_TREE_MENU,
+  '/gradient-frame': GRADIENT_FRAME_CARD,
 };
 
 // What we expect after DarkAbsolut runs.
@@ -79,6 +92,7 @@ const EXPECT = {
   '/dark-gradient':  { wantDarkTop: true },
   '/logo-bar':       { wantDarkTop: true },
   '/tiled-tree':     { wantVisibleText: true },
+  '/gradient-frame': { wantDarkTop: true },
 };
 
 module.exports = { PAGES, EXPECT };

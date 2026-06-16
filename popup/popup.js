@@ -50,7 +50,7 @@ async function refresh() {
   $("da-host").textContent = currentHostname || "(no site)";
   $("da-global").checked = !!state.globalEnabled;
 
-  const restricted = !currentHostname || /^(chrome|edge|about|moz-extension|chrome-extension|view-source|file):/i.test(url);
+  const restricted = !currentHostname || /^(chrome|edge|about|moz-extension|chrome-extension|view-source):/i.test(url);
   const entry = findEntry(currentHostname);
   const coveredBySub = isCoveredBySubdomainRule(currentHostname);
   const siteDisabled = !!entry || coveredBySub;

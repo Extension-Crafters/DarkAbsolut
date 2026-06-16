@@ -20,7 +20,13 @@ var DAPopup = (function () {
   }
 
   function hostFromUrl(url) {
-    try { return new URL(url).hostname.toLowerCase(); } catch { return ""; }
+    try {
+      const u = new URL(url);
+      // Mirror matching.js: local files share one pseudo-host so the popup's
+      // per-"site" controls operate on the same key the background uses.
+      if (u.protocol === "file:") return "localfile";
+      return u.hostname.toLowerCase();
+    } catch { return ""; }
   }
 
   return { $, send, getActiveTab, hostFromUrl };

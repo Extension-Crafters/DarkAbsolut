@@ -1,7 +1,7 @@
 {
   "fx_dark-bar": {
     "kind": "fixture",
-    "url": "http://127.0.0.1:37723/dark-bar",
+    "url": "http://127.0.0.1:42995/dark-bar",
     "rootAttr": "on",
     "navErr": null,
     "width": 1280,
@@ -15,7 +15,7 @@
   },
   "fx_light-gradient": {
     "kind": "fixture",
-    "url": "http://127.0.0.1:37723/light-gradient",
+    "url": "http://127.0.0.1:42995/light-gradient",
     "rootAttr": "on",
     "navErr": null,
     "width": 1280,
@@ -29,7 +29,7 @@
   },
   "fx_dark-gradient": {
     "kind": "fixture",
-    "url": "http://127.0.0.1:37723/dark-gradient",
+    "url": "http://127.0.0.1:42995/dark-gradient",
     "rootAttr": "on",
     "navErr": null,
     "width": 1280,
@@ -43,7 +43,7 @@
   },
   "fx_logo-bar": {
     "kind": "fixture",
-    "url": "http://127.0.0.1:37723/logo-bar",
+    "url": "http://127.0.0.1:42995/logo-bar",
     "rootAttr": "on",
     "navErr": null,
     "width": 1280,
@@ -53,6 +53,20 @@
     "topBandLum": 0.022,
     "brightBand": null,
     "wantDarkTop": true,
+    "pass": true
+  },
+  "fx_tiled-tree": {
+    "kind": "fixture",
+    "url": "http://127.0.0.1:42995/tiled-tree",
+    "rootAttr": "on",
+    "navErr": null,
+    "width": 1280,
+    "height": 900,
+    "overallLum": 0.0184,
+    "brightFrac": 0.0161,
+    "topBandLum": 0.018,
+    "brightBand": null,
+    "wantVisibleText": true,
     "pass": true
   },
   "wikipedia": {
@@ -75,7 +89,7 @@
     "width": 1280,
     "height": 900,
     "overallLum": 0.0965,
-    "brightFrac": 0.0792,
+    "brightFrac": 0.0776,
     "topBandLum": 0.049,
     "brightBand": null
   },
@@ -86,8 +100,8 @@
     "navErr": null,
     "width": 1280,
     "height": 900,
-    "overallLum": 0.0085,
-    "brightFrac": 0.0072,
+    "overallLum": 0.0083,
+    "brightFrac": 0.0071,
     "topBandLum": 0,
     "brightBand": null
   },
@@ -98,9 +112,9 @@
     "navErr": null,
     "width": 1280,
     "height": 900,
-    "overallLum": 0.0471,
-    "brightFrac": 0.0166,
-    "topBandLum": 0.139,
+    "overallLum": 0.0472,
+    "brightFrac": 0.0169,
+    "topBandLum": 0.138,
     "brightBand": null
   },
   "w3schools": {
@@ -110,8 +124,8 @@
     "navErr": null,
     "width": 1280,
     "height": 900,
-    "overallLum": 0.1264,
-    "brightFrac": 0.1024,
+    "overallLum": 0.1269,
+    "brightFrac": 0.1027,
     "topBandLum": 0.254,
     "brightBand": {
       "y": 56,
@@ -142,13 +156,13 @@
     "navErr": null,
     "width": 1280,
     "height": 900,
-    "overallLum": 0.212,
-    "brightFrac": 0.1332,
+    "overallLum": 0.291,
+    "brightFrac": 0.2054,
     "topBandLum": 0.053,
     "brightBand": {
-      "y": 650,
-      "h": 68,
-      "lum": 0.639
+      "y": 652,
+      "h": 20,
+      "lum": 0.768
     }
   },
   "imdb": {
@@ -170,8 +184,8 @@
     "navErr": null,
     "width": 1280,
     "height": 900,
-    "overallLum": 0.1849,
-    "brightFrac": 0.0876,
+    "overallLum": 0.1578,
+    "brightFrac": 0.0809,
     "topBandLum": 0.054,
     "brightBand": null
   },
@@ -194,10 +208,14 @@
     "navErr": null,
     "width": 1280,
     "height": 900,
-    "overallLum": 0.2043,
-    "brightFrac": 0.1531,
-    "topBandLum": 0.303,
-    "brightBand": null
+    "overallLum": 0.3583,
+    "brightFrac": 0.3397,
+    "topBandLum": 0.735,
+    "brightBand": {
+      "y": 1,
+      "h": 268,
+      "lum": 0.754
+    }
   },
   "weather": {
     "kind": "live",
@@ -206,8 +224,8 @@
     "navErr": "page.goto: Timeout 45000ms exceeded.\nCall log:\n  - navigating to \"https://weather.com/\", waiting until \"load\"\n",
     "width": 1280,
     "height": 900,
-    "overallLum": 0.3225,
-    "brightFrac": 0.3025,
+    "overallLum": 0.3167,
+    "brightFrac": 0.3046,
     "topBandLum": 0.136,
     "brightBand": null
   },
@@ -218,9 +236,9 @@
     "navErr": null,
     "width": 1280,
     "height": 900,
-    "overallLum": 0.0813,
-    "brightFrac": 0,
-    "topBandLum": 0.074,
+    "overallLum": 0.1262,
+    "brightFrac": 0.0629,
+    "topBandLum": 0.126,
     "brightBand": null
   },
   "apple": {
@@ -242,8 +260,8 @@
     "navErr": null,
     "width": 1280,
     "height": 900,
-    "overallLum": 0.1268,
-    "brightFrac": 0.0888,
+    "overallLum": 0.1207,
+    "brightFrac": 0.075,
     "topBandLum": 0.24,
     "brightBand": {
       "y": 56,
@@ -258,9 +276,277 @@
     "navErr": null,
     "width": 1280,
     "height": 900,
-    "overallLum": 0.1294,
-    "brightFrac": 0.0737,
-    "topBandLum": 0.069,
+    "overallLum": 0.159,
+    "brightFrac": 0.1126,
+    "topBandLum": 0.414,
+    "brightBand": {
+      "y": 0,
+      "h": 50,
+      "lum": 0.797
+    }
+  },
+  "google": {
+    "kind": "live",
+    "url": "https://www.google.com/search?q=css",
+    "rootAttr": "on",
+    "navErr": null,
+    "width": 1280,
+    "height": 900,
+    "overallLum": 0.006,
+    "brightFrac": 0.0045,
+    "topBandLum": 0.007,
     "brightBand": null
+  },
+  "bing": {
+    "kind": "live",
+    "url": "https://www.bing.com/search?q=css",
+    "rootAttr": "on",
+    "navErr": null,
+    "width": 1280,
+    "height": 900,
+    "overallLum": 0.0031,
+    "brightFrac": 0.0017,
+    "topBandLum": 0.007,
+    "brightBand": null
+  },
+  "yahoo": {
+    "kind": "live",
+    "url": "https://www.yahoo.com/",
+    "rootAttr": "on",
+    "navErr": null,
+    "width": 1280,
+    "height": 900,
+    "overallLum": 0.1376,
+    "brightFrac": 0.0518,
+    "topBandLum": 0.097,
+    "brightBand": null
+  },
+  "reddit": {
+    "kind": "live",
+    "url": "https://old.reddit.com/",
+    "rootAttr": "on",
+    "navErr": null,
+    "width": 1280,
+    "height": 900,
+    "overallLum": 0.031,
+    "brightFrac": 0.0329,
+    "topBandLum": 0.059,
+    "brightBand": null
+  },
+  "quora": {
+    "kind": "live",
+    "url": "https://www.quora.com/",
+    "rootAttr": "on",
+    "navErr": null,
+    "width": 1280,
+    "height": 900,
+    "overallLum": 0.008,
+    "brightFrac": 0.0066,
+    "topBandLum": 0,
+    "brightBand": null
+  },
+  "medium": {
+    "kind": "live",
+    "url": "https://medium.com/",
+    "rootAttr": "on",
+    "navErr": null,
+    "width": 1280,
+    "height": 900,
+    "overallLum": 0.0075,
+    "brightFrac": 0.0064,
+    "topBandLum": 0,
+    "brightBand": null
+  },
+  "geeksforgeeks": {
+    "kind": "live",
+    "url": "https://www.geeksforgeeks.org/",
+    "rootAttr": "on",
+    "navErr": null,
+    "width": 1280,
+    "height": 900,
+    "overallLum": 0.2095,
+    "brightFrac": 0.1078,
+    "topBandLum": 0.029,
+    "brightBand": {
+      "y": 758,
+      "h": 14,
+      "lum": 0.522
+    }
+  },
+  "craigslist": {
+    "kind": "live",
+    "url": "https://craigslist.org/",
+    "rootAttr": "on",
+    "navErr": null,
+    "width": 1280,
+    "height": 900,
+    "overallLum": 0.0442,
+    "brightFrac": 0.0227,
+    "topBandLum": 0.052,
+    "brightBand": null
+  },
+  "wikihow": {
+    "kind": "live",
+    "url": "https://www.wikihow.com/Main-Page",
+    "rootAttr": "on",
+    "navErr": null,
+    "width": 1280,
+    "height": 900,
+    "overallLum": 0.1672,
+    "brightFrac": 0.1253,
+    "topBandLum": 0.082,
+    "brightBand": {
+      "y": 762,
+      "h": 16,
+      "lum": 0.522
+    }
+  },
+  "indeed": {
+    "kind": "live",
+    "url": "https://www.indeed.com/",
+    "rootAttr": "on",
+    "navErr": null,
+    "width": 1280,
+    "height": 900,
+    "overallLum": 0.0082,
+    "brightFrac": 0.0069,
+    "topBandLum": 0.019,
+    "brightBand": null
+  },
+  "yelp": {
+    "kind": "live",
+    "url": "https://www.yelp.com/",
+    "rootAttr": "on",
+    "navErr": null,
+    "width": 1280,
+    "height": 900,
+    "overallLum": 0.0178,
+    "brightFrac": 0.0107,
+    "topBandLum": 0.028,
+    "brightBand": null
+  },
+  "npm": {
+    "kind": "live",
+    "url": "https://www.npmjs.com/package/react",
+    "rootAttr": "on",
+    "navErr": null,
+    "width": 1280,
+    "height": 900,
+    "overallLum": 0.0081,
+    "brightFrac": 0.007,
+    "topBandLum": 0,
+    "brightBand": null
+  },
+  "govuk": {
+    "kind": "live",
+    "url": "https://www.gov.uk/",
+    "rootAttr": "on",
+    "navErr": null,
+    "width": 1280,
+    "height": 900,
+    "overallLum": 0.0819,
+    "brightFrac": 0.0146,
+    "topBandLum": 0.102,
+    "brightBand": null
+  },
+  "cdc": {
+    "kind": "live",
+    "url": "https://www.cdc.gov/",
+    "rootAttr": "on",
+    "navErr": null,
+    "width": 1280,
+    "height": 900,
+    "overallLum": 0.401,
+    "brightFrac": 0.2502,
+    "topBandLum": 0.376,
+    "brightBand": null
+  },
+  "tripadvisor": {
+    "kind": "live",
+    "url": "https://www.tripadvisor.com/",
+    "rootAttr": "on",
+    "navErr": null,
+    "width": 1280,
+    "height": 900,
+    "overallLum": 0.014,
+    "brightFrac": 0.0069,
+    "topBandLum": 0.014,
+    "brightBand": null
+  },
+  "walmart": {
+    "kind": "live",
+    "url": "https://www.walmart.com/",
+    "rootAttr": "on",
+    "navErr": null,
+    "width": 1280,
+    "height": 900,
+    "overallLum": 0.4983,
+    "brightFrac": 0.1931,
+    "topBandLum": 0.452,
+    "brightBand": {
+      "y": 590,
+      "h": 67,
+      "lum": 0.802
+    }
+  },
+  "target": {
+    "kind": "live",
+    "url": "https://www.target.com/",
+    "rootAttr": "on",
+    "navErr": null,
+    "width": 1280,
+    "height": 900,
+    "overallLum": 0.3014,
+    "brightFrac": 0.2996,
+    "topBandLum": 0.067,
+    "brightBand": {
+      "y": 359,
+      "h": 216,
+      "lum": 0.665
+    }
+  },
+  "etsy": {
+    "kind": "live",
+    "url": "https://www.etsy.com/",
+    "rootAttr": "on",
+    "navErr": null,
+    "width": 1280,
+    "height": 900,
+    "overallLum": 0.0137,
+    "brightFrac": 0.0053,
+    "topBandLum": 0.008,
+    "brightBand": null
+  },
+  "cloudflare": {
+    "kind": "live",
+    "url": "https://www.cloudflare.com/",
+    "rootAttr": "on",
+    "navErr": null,
+    "width": 1280,
+    "height": 900,
+    "overallLum": 0.2117,
+    "brightFrac": 0.0274,
+    "topBandLum": 0.044,
+    "brightBand": {
+      "y": 789,
+      "h": 11,
+      "lum": 0.517
+    }
+  },
+  "mozilla": {
+    "kind": "live",
+    "url": "https://www.mozilla.org/en-US/",
+    "rootAttr": "on",
+    "navErr": null,
+    "width": 1280,
+    "height": 900,
+    "overallLum": 0.2346,
+    "brightFrac": 0.0861,
+    "topBandLum": 0.246,
+    "brightBand": {
+      "y": 132,
+      "h": 16,
+      "lum": 0.519
+    }
   }
 }
