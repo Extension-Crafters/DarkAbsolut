@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>DarkAbsolut — Saved sites</title>
+  <link rel="stylesheet" href="popup.css" />
+  <link rel="stylesheet" href="io.css" />
+  <link rel="stylesheet" href="options.css" />
+</head>
+<body class="io-body">
+  <header class="io-header">
+    <div class="da-logo" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="28" height="28"><path fill="currentColor" d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+    </div>
+    <div>
+      <h1>DarkAbsolut</h1>
+      <p class="io-sub">Saved site settings</p>
+    </div>
+  </header>
+
+  <main class="io-main opt-main">
+    <section class="io-card">
+      <div>
+        <h2>Per-site configuration</h2>
+        <p class="io-desc">
+          Every domain and subdomain you've customised from the popup is stored
+          here. Open a site in a new tab, or remove its saved settings to let it
+          fall back to the automatic default.
+        </p>
+      </div>
+
+      <div class="opt-toolbar">
+        <div class="opt-count"><strong id="opt-count-top">0</strong> saved site(s)</div>
+        <button id="opt-clear-top" class="da-btn opt-danger" type="button" disabled>
+          Clear all saved sites
+        </button>
+      </div>
+
+      <div class="opt-table-wrap">
+        <table class="opt-table">
+          <thead>
+            <tr>
+              <th class="opt-col-site">Site</th>
+              <th class="opt-col-theme">Dark theme</th>
+              <th class="opt-col-img">Natural images</th>
+              <th class="opt-col-act">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="opt-rows"></tbody>
+        </table>
+
+        <div id="opt-empty" class="opt-empty" hidden>
+          <svg viewBox="0 0 24 24" width="40" height="40" aria-hidden="true">
+            <path fill="currentColor" d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>
+          </svg>
+          <p class="opt-empty-title">No saved sites yet</p>
+          <p class="io-desc">
+            Open the DarkAbsolut popup on any website and change its options —
+            disabled sites and image overrides will show up here.
+          </p>
+        </div>
+      </div>
+
+      <div class="opt-toolbar opt-toolbar-bottom">
+        <div class="opt-count"><strong id="opt-count-bottom">0</strong> saved site(s)</div>
+        <button id="opt-clear-bottom" class="da-btn opt-danger" type="button" disabled>
+          Clear all saved sites
+        </button>
+      </div>
+
+      <div id="opt-msg" class="io-msg" role="status"></div>
+    </section>
+  </main>
+
+  <script src="shared.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>

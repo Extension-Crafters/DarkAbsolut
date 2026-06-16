@@ -4,8 +4,9 @@
   "description": "My eyes are worn... She brazenly plumbs the depths of the darkness that separates her from my pupil.  Please kill all the lights in this world! Turn off the light waiting to the end of humanity...",
   "main": "background.js",
   "scripts": {
-    "test": "node tests/test-extension.js && node tests/test-dark.js",
+    "test": "node tests/test-extension.js && node tests/test-dark.js && node tests/test-options.js",
     "test:ext": "node tests/test-extension.js",
+    "test:options": "node tests/test-options.js",
     "test:colors": "node tests/test-dark.js",
     "test:visual": "node tests/visual-audit.js",
     "test:visual:live": "node tests/visual-audit.js --live",

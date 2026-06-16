@@ -23,6 +23,8 @@ EXCLUDES=(
   "*/.git/*"
   "*/.claude/*"
   "*/tests/*"
+  "store-assets/*"
+  "docs/*"
   "*.zip"
   "*.log"
   "*/.DS_Store"

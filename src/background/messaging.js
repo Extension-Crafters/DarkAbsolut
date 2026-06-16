@@ -95,6 +95,28 @@ async function handle(msg, sender) {
       await broadcastUpdate();
       return { ok: true, state: next };
     }
+    case "REMOVE_DOMAIN_CONFIG": {
+      // Wipe every saved setting for one host (theme + image overrides),
+      // letting the site fall back to the automatic default.
+      const host = (msg.hostname || "").toLowerCase();
+      if (!host) return { ok: false, error: "missing_hostname" };
+      const state = await getState();
+      const disabledDomains = state.disabledDomains.filter(
+        e => e.domain.toLowerCase() !== host
+      );
+      const noImageInversionDomains = (state.noImageInversionDomains || []).filter(
+        e => e.domain.toLowerCase() !== host
+      );
+      const next = await setState({ disabledDomains, noImageInversionDomains });
+      await broadcastUpdate();
+      return { ok: true, state: next };
+    }
+    case "CLEAR_ALL_DOMAINS": {
+      // Drop every per-site override; keep the global master switch as-is.
+      const next = await setState({ disabledDomains: [], noImageInversionDomains: [] });
+      await broadcastUpdate();
+      return { ok: true, state: next };
+    }
     case "GET_REGISTRABLE": {
       return { ok: true, registrable: registrableLike(msg.hostname || "") };
     }

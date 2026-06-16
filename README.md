@@ -31,6 +31,8 @@ She brazenly plumbs the depths of the darkness that separates her from my pupil.
 Please kill all the lights in this world!
 Turn off the light waiting to the end of humanity...
   
+[DarkAbsolut website](https://extension-crafters.github.io/DarkAbsolut/)
+
 A cross-browser (Chrome / Firefox MV3) extension that automatically applies a
 dark theme to websites that don't already provide one. It uses smart detection
 to skip sites that are already dark, and offers a popup UI with a global kill
@@ -168,6 +170,19 @@ npm run package
 
 This produces `DarkAbsolut.zip` at the repo root, ready to upload to the
 Chrome Web Store or to submit to Mozilla via `web-ext sign`.
+
+## Project website (GitHub Pages)
+
+A static landing page lives in [`docs/`](docs/) (`index.html` + `style.css` +
+`assets/`). To publish it, open the repo's **Settings → Pages** and set the
+source to **Deploy from a branch**, branch `master`, folder `/docs`. It then
+serves at `https://extension-crafters.github.io/DarkAbsolut/`.
+
+The page presents the project, its features and screenshots, and install
+instructions. Replace the `href="#"` placeholders on the “Add to Chrome / Firefox”
+buttons in `docs/index.html` with the real listing URLs once the extension is
+published. The page is excluded from the distributable zip by
+`package-extension.sh`.
 
 ## Notes & limitations
 

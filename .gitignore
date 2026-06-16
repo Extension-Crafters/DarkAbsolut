@@ -13,5 +13,9 @@ Thumbs.db
 # Test & diagnostic artefacts (screenshots, generated swatches)
 tests/screenshots/
 
+# Chrome Web Store promo assets (sources + rendered exports, not shipped)
+store-assets/
+
+# Build output / packaged extension
 *.zip
 *.log
