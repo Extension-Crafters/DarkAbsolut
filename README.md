@@ -46,9 +46,12 @@ switch and per-domain/subdomain disable.
 - **Automatic dark mode** via CSS `filter: invert(1) hue-rotate(180deg)` on
   `<html>`, with re-inversion of media (images, videos, embeds, canvases,
   SVG `<image>`) and elements with CSS background images so visual content
-  keeps its real colors. Iframes are intentionally *not* counter-inverted
-  so HTML content embedded in same-origin iframes (e.g. Gmail message
-  bodies, compose windows) is darkened along with the rest of the page.
+  keeps its real colors — including media inside **open shadow roots** (ad /
+  sponsored web components), which a document stylesheet can't reach, so a
+  shadow-scoped counter-invert sheet is adopted into each one. Iframes are
+  intentionally *not* counter-inverted so HTML content embedded in same-origin
+  iframes (e.g. Gmail message bodies, compose windows) is darkened along with
+  the rest of the page.
 - **Already-dark detection**: respects `color-scheme: dark` declared by the
   site and measures the effective background luminance of `html`/`body`.
 - **Popup UI**:

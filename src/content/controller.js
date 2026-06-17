@@ -20,6 +20,7 @@
     markBackgroundImageElements,
     processElement,
     revertPreLightened,
+    clearShadowStyles,
     tagLightIslands,
     clearLightIslands
   } = DA.elements;
@@ -178,6 +179,9 @@
   function unapplyRootInversion() {
     document.documentElement.removeAttribute(DA.ATTR);
     try { revertPreLightened(document); } catch (_) {}
+    // Root filter is gone — drop shadow-root counter-invert styles so shadow
+    // media isn't left inverted on the now-uninverted page.
+    try { clearShadowStyles(document); } catch (_) {}
     state.applied = false;
     // Ensure the stylesheet stays mounted so the light-island rules can
     // fire on tagged descendants.
@@ -210,6 +214,7 @@
     if (style) style.remove();
     stopObserver();
     try { revertPreLightened(document); } catch (_) {}
+    try { clearShadowStyles(document); } catch (_) {}
     try { clearLightIslands(document); } catch (_) {}
     state.applied = false;
     broadcastInversionToSubframes(false);

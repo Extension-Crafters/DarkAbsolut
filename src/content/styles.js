@@ -107,10 +107,73 @@ html:not([${ATTR}="on"]) [${DA.NATIVE_LIGHT_ATTR}="1"] svg:not([${DA.BG_IMAGE_AT
     else html.removeAttribute(DA.NOIMG_ATTR);
   }
 
+  // ── Shadow DOM support ───────────────────────────────────────────────────
+  // The page-level `filter: invert()` on <html> inverts everything it paints —
+  // including content inside shadow roots. But the counter-invert rules above
+  // live in the document's stylesheet and CSS does not cross shadow boundaries,
+  // so media inside a shadow root (e.g. ad/sponsored web components) is inverted
+  // once with no counter-invert → a colour-negative image. We fix this by
+  // adopting an equivalent, shadow-scoped stylesheet into each shadow root.
+  function buildShadowCss() {
+    return `
+img, video, embed, object, canvas, svg image,
+[${DA.BG_IMAGE_ATTR}="1"], [${DA.NATIVE_DARK_ATTR}="1"] {
+  filter: invert(1) hue-rotate(180deg) !important;
+}
+svg:not([${DA.BG_IMAGE_ATTR}="1"]):not(:has(image)) { filter: none !important; }
+`;
+  }
+
+  let shadowSheet = null;
+  function getShadowSheet() {
+    if (shadowSheet) return shadowSheet;
+    try {
+      shadowSheet = new CSSStyleSheet();
+      shadowSheet.replaceSync(buildShadowCss());
+    } catch (_) {
+      shadowSheet = null; // constructable stylesheets unsupported — caller falls back
+    }
+    return shadowSheet;
+  }
+
+  // Make a shadow root re-invert its media. Prefers adoptedStyleSheets; falls
+  // back to appending a <style> node when constructable stylesheets are absent.
+  function applyShadowStyle(root) {
+    if (!root) return;
+    const sheet = getShadowSheet();
+    if (sheet && Array.isArray(root.adoptedStyleSheets)) {
+      if (!root.adoptedStyleSheets.includes(sheet)) {
+        try { root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet]; return; }
+        catch (_) { /* fall through to <style> */ }
+      } else { return; }
+    }
+    if (!root.getElementById || !root.getElementById(DA.STYLE_ID)) {
+      try {
+        const s = document.createElement("style");
+        s.id = DA.STYLE_ID;
+        s.textContent = buildShadowCss();
+        root.appendChild(s);
+      } catch (_) {}
+    }
+  }
+
+  function removeShadowStyle(root) {
+    if (!root) return;
+    try {
+      if (shadowSheet && Array.isArray(root.adoptedStyleSheets)) {
+        root.adoptedStyleSheets = root.adoptedStyleSheets.filter(s => s !== shadowSheet);
+      }
+      const s = root.getElementById && root.getElementById(DA.STYLE_ID);
+      if (s) s.remove();
+    } catch (_) {}
+  }
+
   DA.styles = {
     buildInversionCss,
     ensureStyle,
     ensureAttributeAndStyle,
-    setImageInversionDisabled
+    setImageInversionDisabled,
+    applyShadowStyle,
+    removeShadowStyle
   };
 })(DA);

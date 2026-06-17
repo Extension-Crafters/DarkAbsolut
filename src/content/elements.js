@@ -78,6 +78,13 @@
       // Don't tag a wrapper whose counter-filter would double-invert a
       // visible white child. Let the children be processed individually.
       if (hasVisibleLightDescendant(el, 3)) return false;
+      // Don't tag a wrapper that fronts a large image/video. That media is
+      // counter-inverted by its own rule; wrapping it in another counter-invert
+      // triple-inverts it into a colour-negative — e.g. an image carousel whose
+      // dark placeholder background made the wrapper look "natively dark", which
+      // then flipped every restaurant photo inside it (TripAdvisor cards). The
+      // wrapper's dark bg is hidden behind the image anyway.
+      if (hasLargeMediaDescendant(el)) return false;
       el.setAttribute(NATIVE_DARK_ATTR, "1");
       return true;
     }
@@ -185,6 +192,27 @@
     try { return /\S/.test(el.textContent || ""); } catch (_) { return false; }
   }
 
+  // A no-repeat background image counts as a logo/photo/illustration (rather
+  // than a small UI glyph) when its element is sizeable, bounded, and carries
+  // no text:
+  //   • below MIN side it's a themeable icon/glyph — leave it to invert;
+  //   • above MAX side it's likely a full-width decorative band, where a light
+  //     image would become a bright stripe — leave it to darken (genuine large
+  //     photos almost always use background-size:cover, handled above);
+  //   • text-bearing elements are excluded — tagging them would revert their
+  //     text too (the icon-beside-a-label / dark-on-dark sidebar case).
+  const MIN_BG_PHOTO_SIDE = 48;   // px — smaller is an icon/glyph
+  const MIN_BG_PHOTO_AREA = 8000; // px²
+  const MAX_BG_PHOTO_SIDE = 600;  // px — larger is treated as a decorative band
+  function isLogoOrPhotoBg(el) {
+    let r;
+    try { r = el.getBoundingClientRect(); } catch (_) { return false; }
+    if (Math.min(r.width, r.height) < MIN_BG_PHOTO_SIDE) return false;
+    if (Math.max(r.width, r.height) > MAX_BG_PHOTO_SIDE) return false;
+    if (r.width * r.height < MIN_BG_PHOTO_AREA) return false;
+    return !hasTextContent(el);
+  }
+
   // True when a descendant image/video/etc. covers a large fraction of `el`.
   // Such an element must keep the counter-invert filter: dropping it would
   // leave the (separately counter-inverted) child media double-inverted back
@@ -281,7 +309,10 @@
     const size = (cs.backgroundSize || "").toLowerCase();
     const coversViewport = /cover|contain|100%/.test(size);
     const isRepeating = repeat && repeat !== "no-repeat";
-    if (coversViewport) return true;
+    // A cover/contain image is the element's visual identity → counter-invert,
+    // unless a large <img>/<video> fronts it (then this is a wrapper around real
+    // media that would be triple-inverted; leave it to the media's own rule).
+    if (coversViewport) return !hasLargeMediaDescendant(el);
 
     if (isRepeating) {
       // A tiled/repeating background is almost always a decorative texture or
@@ -294,6 +325,15 @@
       // instead. Only counter-invert a bare decorative tile with no text.
       return !hasTextContent(el);
     }
+
+    // No-repeat url() background: usually a small decorative/UI icon (search
+    // glyph, dropdown arrow) that SHOULD invert with the theme. But a no-repeat
+    // image on a sizeable, text-free element is almost always a logo, photo or
+    // illustration (a header logo, a card thumbnail) — counter-invert it so it
+    // keeps its true colours instead of rendering as a colour-negative.
+    // Elements that carry text are excluded: tagging them would revert their
+    // text too (the icon-beside-a-label / dark-on-dark sidebar case).
+    if (isLogoOrPhotoBg(el)) return true;
 
     // Small decorative icon — leave it untouched so the root invert can
     // flip the text color normally.
@@ -333,12 +373,72 @@
     // returns only descendants. Crucial for MutationObserver-added nodes.
     if (scope.nodeType === 1) {
       processElement(scope);
+      if (scope.shadowRoot) processShadowRoot(scope.shadowRoot);
       i++;
     }
     const all = scope.querySelectorAll ? scope.querySelectorAll("*") : [];
     for (const el of all) {
       if (i++ > 5000) break; // safety cap on large DOMs
       processElement(el);
+      // Open shadow roots: neither the counter-invert CSS nor querySelectorAll
+      // cross the boundary, yet the page filter still inverts the shadow
+      // content — so its media renders as a colour-negative (e.g. ad/sponsored
+      // web components). Recurse to re-invert it.
+      if (el.shadowRoot) processShadowRoot(el.shadowRoot);
+    }
+  }
+
+  // ── Shadow DOM re-inversion ──────────────────────────────────────────────
+  const observedShadowRoots = new WeakSet();
+
+  // Make an open shadow root re-invert its media: adopt the shadow-scoped
+  // counter-invert stylesheet, tag its background-image elements, and observe
+  // it so lazily-mounted images (ad cards load late) are handled too. The
+  // observer is gated on DA.state.applied so it never re-adds styles after the
+  // extension is turned off for the page.
+  function processShadowRoot(sr) {
+    if (!sr) return;
+    try { DA.styles.applyShadowStyle(sr); } catch (_) {}
+    if (!observedShadowRoots.has(sr)) {
+      observedShadowRoots.add(sr);
+      try {
+        const mo = new MutationObserver(muts => {
+          if (!DA.state || !DA.state.applied) return;
+          for (const m of muts) {
+            if (m.type === "childList") {
+              for (const n of m.addedNodes) if (n.nodeType === 1) markBackgroundImageElements(n);
+            } else if (m.type === "attributes" && m.target && m.target.nodeType === 1) {
+              processElement(m.target);
+              if (m.target.shadowRoot) processShadowRoot(m.target.shadowRoot);
+            }
+          }
+        });
+        mo.observe(sr, {
+          childList: true, subtree: true,
+          attributes: true, attributeFilter: ["class", "style"]
+        });
+      } catch (_) {}
+    }
+    // Tag bg-images and recurse into any nested shadow roots.
+    markBackgroundImageElements(sr);
+  }
+
+  // Remove our shadow-scoped styles (used when root inversion is turned off, so
+  // shadow media isn't left counter-inverted on a now-uninverted page).
+  function clearShadowStyles(root) {
+    const scope = root || document;
+    let i = 0;
+    if (scope.nodeType === 1 && scope.shadowRoot) {
+      try { DA.styles.removeShadowStyle(scope.shadowRoot); } catch (_) {}
+      clearShadowStyles(scope.shadowRoot);
+    }
+    const all = scope.querySelectorAll ? scope.querySelectorAll("*") : [];
+    for (const el of all) {
+      if (i++ > 5000) break;
+      if (el.shadowRoot) {
+        try { DA.styles.removeShadowStyle(el.shadowRoot); } catch (_) {}
+        clearShadowStyles(el.shadowRoot);
+      }
     }
   }
 
@@ -498,6 +598,8 @@
     revertPreLightened,
     processElement,
     markBackgroundImageElements,
+    processShadowRoot,
+    clearShadowStyles,
     tagLightIslands,
     clearLightIslands
   };
