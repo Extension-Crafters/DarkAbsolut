@@ -20,6 +20,7 @@
     markBackgroundImageElements,
     processElement,
     revertPreLightened,
+    revertRescuedText,
     clearShadowStyles,
     tagLightIslands,
     clearLightIslands
@@ -179,6 +180,8 @@
   function unapplyRootInversion() {
     document.documentElement.removeAttribute(DA.ATTR);
     try { revertPreLightened(document); } catch (_) {}
+    // Root filter is gone — restore any text we forced light for contrast.
+    try { revertRescuedText(document); } catch (_) {}
     // Root filter is gone — drop shadow-root counter-invert styles so shadow
     // media isn't left inverted on the now-uninverted page.
     try { clearShadowStyles(document); } catch (_) {}
@@ -214,6 +217,7 @@
     if (style) style.remove();
     stopObserver();
     try { revertPreLightened(document); } catch (_) {}
+    try { revertRescuedText(document); } catch (_) {}
     try { clearShadowStyles(document); } catch (_) {}
     try { clearLightIslands(document); } catch (_) {}
     state.applied = false;

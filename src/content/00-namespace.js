@@ -12,6 +12,7 @@ DA.STYLE_ID = "darkabsolut-style";
 DA.ATTR = "data-darkabsolut";
 DA.ORIG_ATTR = "data-darkabsolut-bg-orig";
 DA.ORIG_COLOR_ATTR = "data-darkabsolut-color-orig";
+DA.RESCUE_COLOR_ATTR = "data-darkabsolut-rtext";
 DA.BG_IMAGE_ATTR = "data-darkabsolut-bg";
 DA.NATIVE_DARK_ATTR = "data-darkabsolut-darknative";
 DA.NATIVE_LIGHT_ATTR = "data-darkabsolut-lightnative";

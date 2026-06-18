@@ -16,7 +16,7 @@
 
   const {
     ORIG_ATTR, ORIG_COLOR_ATTR, BG_IMAGE_ATTR,
-    NATIVE_DARK_ATTR, NATIVE_LIGHT_ATTR
+    NATIVE_DARK_ATTR, NATIVE_LIGHT_ATTR, RESCUE_COLOR_ATTR
   } = DA;
 
   // Minimum fraction of the viewport area a subtree must cover before we
@@ -340,6 +340,142 @@
     return false;
   }
 
+  // ── Low-contrast text rescue ─────────────────────────────────────────────
+  // A pure page-level invert preserves contrast for normally-inverted text, so
+  // readable light-theme text stays readable. The exception is text inside a
+  // *counter-inverted* element (tagged bg-image / native-dark): the counter-
+  // filter reverts the text to its original (dark) colour, but if that element
+  // has no opaque background of its own, the text lands on the page-inverted
+  // (dark) surface behind it → dark-on-dark, nearly invisible. This is the
+  // recurring "dark-on-dark sidebar" failure (e.g. OVH Manager's flyout menu,
+  // whose items carry a cover-sized icon background that trips counter-invert).
+  //
+  // Rather than chase every tagging trigger, this pass fixes the *symptom*:
+  // when an element's rendered text is dark on a rendered-dark background, force
+  // it to render light. It only ever touches text that is already near-invisible
+  // (contrast below MIN_TEXT_CONTRAST on a dark backdrop), so it cannot make
+  // legible text worse.
+
+  // Max rendered background luminance still considered "dark" for the rescue.
+  const RESCUE_DARK_BG_MAX = 0.22;
+  // Below this rendered text/background contrast ratio the text is unreadable
+  // enough to justify forcing it light (WCAG AA large-text threshold).
+  const RESCUE_MIN_CONTRAST = 3.0;
+
+  function invertColor(c) {
+    return { r: 255 - c.r, g: 255 - c.g, b: 255 - c.b, a: c.a };
+  }
+
+  // Parity of DarkAbsolut invert filters in the element's ancestor-or-self
+  // chain. The page filter on <html> contributes 1 when applied; each counter-
+  // inverted ancestor/self ([bg]/[darknative]) adds another. Odd ⇒ the element
+  // renders inverted relative to its source colours; even ⇒ it renders as-is.
+  // Counted from our own attributes (cheap, and the only inverts we reason
+  // about) rather than getComputedStyle.
+  function chainInvertParity(el) {
+    let n = document.documentElement.getAttribute(DA.ATTR) === "on" ? 1 : 0;
+    let cur = el, hops = 0;
+    while (cur && cur.nodeType === 1 && hops++ < 200) {
+      if (cur !== document.documentElement &&
+          (cur.hasAttribute(BG_IMAGE_ATTR) || cur.hasAttribute(NATIVE_DARK_ATTR))) {
+        n++;
+      }
+      if (cur === document.documentElement) break;
+      cur = cur.parentElement;
+    }
+    return n % 2;
+  }
+
+  // Rendered luminance of a source colour given its chain parity.
+  function displayedLum(c, parity) {
+    return parity ? luminance(invertColor(c)) : luminance(c);
+  }
+
+  // Rendered luminance of the surface the element's text actually sits on.
+  // Walks ancestors for the first opaque background-color and returns its
+  // rendered luminance. Returns null when the backdrop is unknowable — an
+  // *ancestor* paints a background-image (the text sits on that image, whose
+  // colour we can't read). The element's *own* background-image is skipped
+  // (decorative/transparent overlays like menu-item icons let the surface
+  // behind show through). Reaching the root with no opaque colour means the
+  // page surface shows through, which is dark while inverted.
+  function effectiveDisplayedBg(el) {
+    let cur = el, hops = 0;
+    while (cur && cur.nodeType === 1 && hops++ < 200) {
+      let cs;
+      try { cs = getComputedStyle(cur); } catch (_) { return null; }
+      const c = parseColor(cs.backgroundColor);
+      if (c && c.a >= 0.5) return displayedLum(c, chainInvertParity(cur));
+      if (cur !== el && cur.hasAttribute(BG_IMAGE_ATTR)) return null;
+      if (cur === document.documentElement) break;
+      cur = cur.parentElement;
+    }
+    return 0; // page background shows through; inverted page surface is dark
+  }
+
+  function hasDirectText(el) {
+    for (const n of el.childNodes) {
+      if (n.nodeType === 3 && /\S/.test(n.nodeValue)) return true;
+    }
+    return false;
+  }
+
+  // If the element's text renders dark on a dark surface, mark it so the
+  // injected CSS forces it light. Sets only a data-attribute — never inline
+  // style — so it can't trigger the controller's style-watching observer
+  // (attributeFilter is class/style), which is what prevents the re-process
+  // loop that froze the page. The attribute also colours via CSS, so it
+  // survives framework re-renders better than an inline style would.
+  //   "1" = odd parity  → page filter inverts our value (CSS sets near-black).
+  //   "2" = even parity → counter-inverted, renders as-is (CSS sets light).
+  function rescueTextColor(el, cs) {
+    if (document.documentElement.getAttribute(DA.ATTR) !== "on") return;
+    if (el === document.documentElement || el === document.body) return;
+    if (el.hasAttribute(ORIG_ATTR)) return; // pre-lighten owns this element's colour
+    if (!hasDirectText(el)) return;
+    // Shadow-DOM text: chainInvertParity can't cross the shadow boundary to the
+    // page filter, so its parity is unreliable — leave shadow text alone.
+    if (el.getRootNode() !== document) { el.removeAttribute(RESCUE_COLOR_ATTR); return; }
+    if (cs.display === "none" || cs.visibility === "hidden") return;
+    const src = parseColor(cs.color);
+    if (!src || src.a < 0.3) { el.removeAttribute(RESCUE_COLOR_ATTR); return; }
+
+    const parity = chainInvertParity(el);
+    // Measure the element's ORIGINAL colour. If we already rescued it, our CSS
+    // rule is colouring it now, so temporarily drop the tag to read the real
+    // computed colour. (Toggling a data-attribute doesn't trigger the observer.)
+    let measured = src;
+    const wasTagged = el.hasAttribute(RESCUE_COLOR_ATTR);
+    if (wasTagged) {
+      el.removeAttribute(RESCUE_COLOR_ATTR);
+      try { measured = parseColor(getComputedStyle(el).color) || src; } catch (_) {}
+    }
+
+    const want = decideRescue(el, measured, parity);
+    if (want) el.setAttribute(RESCUE_COLOR_ATTR, want);
+    else if (wasTagged) el.removeAttribute(RESCUE_COLOR_ATTR);
+  }
+
+  // Returns "1"/"2" if the element's text renders dark on a dark surface and
+  // should be forced light, else null. Pure decision — no DOM writes.
+  function decideRescue(el, src, parity) {
+    const textLum = displayedLum(src, parity);
+    if (textLum >= 0.5) return null; // already renders light — nothing to fix
+    const bgLum = effectiveDisplayedBg(el);
+    if (bgLum == null) return null;            // unknown backdrop — don't guess
+    if (bgLum >= RESCUE_DARK_BG_MAX) return null; // backdrop isn't dark — leave it
+    const contrast =
+      (Math.max(textLum, bgLum) + 0.05) / (Math.min(textLum, bgLum) + 0.05);
+    if (contrast >= RESCUE_MIN_CONTRAST) return null; // readable enough
+    return parity ? "1" : "2";
+  }
+
+  function revertRescuedText(root) {
+    const scope = root && root.querySelectorAll ? root : document;
+    const els = scope.querySelectorAll(`[${RESCUE_COLOR_ATTR}]`);
+    for (const el of els) el.removeAttribute(RESCUE_COLOR_ATTR);
+  }
+
   function processElement(el) {
     if (!el || el.nodeType !== 1) return;
     try {
@@ -363,6 +499,9 @@
         el.removeAttribute(NATIVE_DARK_ATTR);
       }
       preLightenIfSaturated(el, cs);
+      // Last: rescue text that still renders dark-on-dark after all the
+      // tagging above has settled this element's (and its ancestors') filters.
+      rescueTextColor(el, cs);
     } catch (_) { /* detached */ }
   }
 
@@ -470,6 +609,80 @@
     return true;
   }
 
+  // True if the candidate contains a large opaque DARK region — i.e. it wraps the
+  // page's real dark UI under a light fallback background-color. Twitch's
+  // `channel-root` (bg #fff) holds the dark info panel + chat; the player's
+  // <video> is an EXTERNAL overlay (not a descendant), so the media/sampling
+  // guards miss it and the white shows beside the player. Inverting such a
+  // wrapper flips its dark panels to light. The dark panels are substantial in
+  // absolute terms even when the wrapper itself is a huge scroll container, so
+  // measure each candidate descendant against the viewport area.
+  function hasLargeDarkDescendant(el, viewportArea) {
+    let list;
+    try { list = el.querySelectorAll("*"); } catch (_) { return false; }
+    let n = 0;
+    for (const child of list) {
+      if (n++ > 3000) break; // safety cap on huge containers
+      let cs;
+      try { cs = getComputedStyle(child); } catch (_) { continue; }
+      if (cs.display === "none" || cs.visibility === "hidden") continue;
+      const c = parseColor(cs.backgroundColor);
+      if (!c || c.a < 0.7) continue;
+      if (luminance(c) >= 0.25) continue; // not dark
+      let r;
+      try { r = child.getBoundingClientRect(); } catch (_) { continue; }
+      if (r.width * r.height >= viewportArea * 0.08) return true;
+    }
+    return false;
+  }
+
+  // Verify a candidate light island's light background is the actually-PAINTED
+  // surface, not a CSS background-color hidden behind opaque content. Twitch's
+  // `div.channel-root` declares background:#fff but its children paint the dark
+  // theme — and the <video> — on top; tagging it as a light island inverts the
+  // whole dark channel UI to light. Sample rendered points across the element
+  // and require the visible surface to be predominantly the light background.
+  //
+  // Two ways the light bg is NOT the visible surface:
+  //   • large MEDIA (img/video/canvas/…) is painted over it — its CSS
+  //     background-color is transparent, so a naive bg-color walk wrongly
+  //     reports the wrapper's light bg. This is the Twitch case (channel-root
+  //     fronts the <video>, ~38% of it) and why the block flipped to light only
+  //     once the video started painting (~5-6s) under an elementFromPoint-only
+  //     check. hasLargeMediaDescendant is viewport- and play-state-independent.
+  //   • opaque DARK children cover the wrapper (a white-bg wrapper with a dark
+  //     theme painted on top). Detected by sampling the rendered surface.
+  // Off-screen / fully-overlaid elements can't be sampled — fall back to the
+  // bg-color decision (original behaviour); the media guard above still applies.
+  function lightBgIsVisible(el) {
+    if (hasLargeMediaDescendant(el)) return false;
+    let r;
+    try { r = el.getBoundingClientRect(); } catch (_) { return true; }
+    const W = window.innerWidth, H = window.innerHeight;
+    const x0 = Math.max(1, r.left), y0 = Math.max(1, r.top);
+    const x1 = Math.min(W - 2, r.right), y1 = Math.min(H - 2, r.bottom);
+    if (x1 <= x0 || y1 <= y0) return true; // off-screen — trust the bg-color
+    const fxs = [0.5, 0.25, 0.75, 0.5, 0.5, 0.25, 0.75];
+    const fys = [0.5, 0.5, 0.5, 0.2, 0.8, 0.8, 0.2];
+    let light = 0, total = 0;
+    for (let i = 0; i < fxs.length; i++) {
+      const x = x0 + (x1 - x0) * fxs[i];
+      const y = y0 + (y1 - y0) * fys[i];
+      let hit;
+      try { hit = document.elementFromPoint(x, y); } catch (_) { continue; }
+      if (!hit || (hit !== el && !el.contains(hit))) continue; // overlay outside el
+      total++;
+      // Media painted at this point — real content covers the bg, not light.
+      let m = null;
+      try { m = hit.closest(MEDIA_SELECTOR); } catch (_) {}
+      if (m && (m === el || el.contains(m))) continue;
+      const c = DA.detect.firstOpaqueBgUp(hit);
+      if (c && luminance(c) >= LIGHT_ISLAND_MIN_LUM) light++;
+    }
+    if (total === 0) return true; // fully overlaid — trust the bg-color
+    return light >= total * 0.5;
+  }
+
   // Consider tagging this single element as a light island.
   function tryTagLightIsland(el, viewportArea) {
     if (!el || el.nodeType !== 1) return false;
@@ -507,6 +720,13 @@
     }
 
     if (!hasOpaqueLightBg(cs)) return false;
+    // Don't invert a wrapper that holds the page's real dark UI — its light bg
+    // is a structural fallback behind large dark panels (Twitch channel-root,
+    // whose <video> is an external overlay so the media/sampling guards miss it).
+    if (hasLargeDarkDescendant(el, viewportArea)) return false;
+    // The light bg must actually be visible — not hidden behind opaque dark
+    // children or media painted on top (Twitch channel-root, image cards).
+    if (!lightBgIsVisible(el)) return false;
     el.setAttribute(NATIVE_LIGHT_ATTR, "1");
     return true;
   }
@@ -596,6 +816,8 @@
     tagNativeDarkBg,
     preLightenIfSaturated,
     revertPreLightened,
+    rescueTextColor,
+    revertRescuedText,
     processElement,
     markBackgroundImageElements,
     processShadowRoot,

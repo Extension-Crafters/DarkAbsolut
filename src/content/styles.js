@@ -42,6 +42,20 @@ html[${ATTR}="on"] [${DA.NATIVE_DARK_ATTR}="1"] {
 html[${ATTR}="on"] svg:not([${DA.BG_IMAGE_ATTR}="1"]):not(:has(image)) {
   filter: none !important;
 }
+/* ── Low-contrast text rescue ─────────────────────────────────────────────
+   Force text that would otherwise render dark-on-dark to render light.
+   Applied via an attribute + CSS rule (NEVER inline style) so it cannot churn
+   the style-watching MutationObserver into an infinite re-process loop that
+   freezes the page. Tagged by elements.js::rescueTextColor:
+     "1" = normally-inverted element — set a near-black the page filter flips
+           to light; "2" = counter-inverted element — renders as-is, set light.
+   Scoped with :not(:hover) so we DEFER to the site's own hover styling: on
+   hover the site swaps in its own background + text colour (a contrasting pair
+   it designed), which renders readably through the inversion. Without this our
+   forced light text lands on the hover background (often light) = unreadable
+   light-on-light (the OVH Manager flyout hover bug). */
+html[${ATTR}="on"] [${DA.RESCUE_COLOR_ATTR}="1"]:not(:hover) { color: #141414 !important; }
+html[${ATTR}="on"] [${DA.RESCUE_COLOR_ATTR}="2"]:not(:hover) { color: #ededed !important; }
 /* ── Light islands on already-dark pages ─────────────────────────────────
    When the page is detected as already-dark we leave the root filter off
    so the site's dark theme is preserved. But dynamically-mounted light
