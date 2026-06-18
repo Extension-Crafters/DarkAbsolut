@@ -15,7 +15,7 @@
   } = DA.colors;
 
   const {
-    ORIG_ATTR, ORIG_COLOR_ATTR, BG_IMAGE_ATTR,
+    ORIG_ATTR, ORIG_COLOR_ATTR, BG_IMAGE_ATTR, BG_ICON_ATTR,
     NATIVE_DARK_ATTR, NATIVE_LIGHT_ATTR, RESCUE_COLOR_ATTR
   } = DA;
 
@@ -476,6 +476,94 @@
     for (const el of els) el.removeAttribute(RESCUE_COLOR_ATTR);
   }
 
+  // ── Background-fronted icon imgs (the phpMyAdmin pattern) ────────────────
+  // Some apps render icons as <img src="1×1 dot.gif"> with the real icon painted
+  // via CSS background-image. The blanket `img` counter-invert keeps that bg at
+  // its original colour — correct for LIGHT icons (they stay light on the dark
+  // page), wrong for DARK icons (they stay dark-on-dark). We can't tell which
+  // without looking, so we sample the icon's actual pixels and tag only the dark
+  // ones to invert with the theme. (A blanket rule either way breaks one theme:
+  // verified pmahomme icons are light ~0.6, bootstrap-style icons are dark.)
+
+  // An <img> whose visible content is its CSS background-image (placeholder src).
+  function isBgFrontedImg(el) {
+    const nw = el.naturalWidth | 0, nh = el.naturalHeight | 0;
+    if (nw > 0 && nw <= 2 && nh > 0 && nh <= 2) return true;
+    const src = (el.getAttribute("src") || "").trim();
+    if (!src) return true;
+    if (nw <= 2 &&
+        /\b(?:dot|blank|spacer|transparent|clear|pixel|1x1)\.(?:gif|png|svg)\b/i.test(src)) {
+      return true;
+    }
+    return false;
+  }
+
+  function firstUrl(bg) {
+    const m = /url\((["']?)(.*?)\1\)/i.exec(bg || "");
+    return m ? m[2] : null;
+  }
+
+  // Mean luminance of an image's opaque pixels (0=black..1=white), or null when
+  // it can't be read (cross-origin taint, load error). Drawn to a canvas; same-
+  // origin theme assets (the common case) read fine.
+  function sampleImageLum(url) {
+    return new Promise(resolve => {
+      let done = false;
+      const finish = v => { if (!done) { done = true; resolve(v); } };
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const w = img.naturalWidth || 24, h = img.naturalHeight || 24;
+          const c = document.createElement("canvas");
+          c.width = w; c.height = h;
+          const ctx = c.getContext("2d");
+          ctx.drawImage(img, 0, 0, w, h);
+          const d = ctx.getImageData(0, 0, w, h).data;
+          let s = 0, n = 0;
+          for (let i = 0; i < d.length; i += 4) {
+            if (d[i + 3] > 20) {
+              s += (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) / 255;
+              n++;
+            }
+          }
+          finish(n ? s / n : null);
+        } catch (_) { finish(null); } // tainted (cross-origin) → unknown
+      };
+      img.onerror = () => finish(null);
+      try { img.src = url; } catch (_) { finish(null); }
+      setTimeout(() => finish(null), 4000); // safety timeout
+    });
+  }
+
+  const iconLumCache = new Map();   // url -> number|null
+  const iconLumPending = new Map(); // url -> Promise<number|null>
+  function getIconLum(url) {
+    if (iconLumCache.has(url)) return Promise.resolve(iconLumCache.get(url));
+    if (iconLumPending.has(url)) return iconLumPending.get(url);
+    const p = sampleImageLum(url).then(l => {
+      iconLumCache.set(url, l); iconLumPending.delete(url); return l;
+    });
+    iconLumPending.set(url, p);
+    return p;
+  }
+
+  // Icons darker than this (raw luminance) render dark-on-dark under the blanket
+  // counter-invert and must instead invert with the theme. pmahomme icons (~0.6)
+  // stay above it (kept light); bootstrap-style dark icons fall below.
+  const ICON_DARK_MAX = 0.5;
+  function applyIconDecision(el, lum) {
+    if (!el.isConnected || el.hasAttribute(BG_IMAGE_ATTR)) return;
+    if (lum != null && lum < ICON_DARK_MAX) el.setAttribute(BG_ICON_ATTR, "1");
+    else if (el.hasAttribute(BG_ICON_ATTR)) el.removeAttribute(BG_ICON_ATTR);
+  }
+
+  function classifyBgIcon(el, bg) {
+    const url = firstUrl(bg);
+    if (!url) return;
+    if (iconLumCache.has(url)) applyIconDecision(el, iconLumCache.get(url));
+    else getIconLum(url).then(l => applyIconDecision(el, l));
+  }
+
   function processElement(el) {
     if (!el || el.nodeType !== 1) return;
     try {
@@ -489,10 +577,26 @@
       // decorative bg-image elements inverted on this site.
       const forceImages =
         document.documentElement.hasAttribute(DA.NOIMG_ATTR);
-      if (hasBgImage && (forceImages || shouldReinvertBgImage(el, cs, bg))) {
-        el.setAttribute(BG_IMAGE_ATTR, "1");
-      } else if (el.hasAttribute(BG_IMAGE_ATTR)) {
-        el.removeAttribute(BG_IMAGE_ATTR);
+      // An <img> icon painted via background-image over a placeholder src (the
+      // phpMyAdmin pattern). This MUST take precedence over the generic
+      // background-image logic below: bootstrap-theme icons use
+      // background-repeat:repeat, which shouldReinvertBgImage would treat as a
+      // "decorative tile → keep colours" and counter-invert, leaving dark icons
+      // dark-on-dark. Instead sample the icon's real colour: dark icons invert
+      // with the theme (→ light), light icons keep the blanket img counter-invert.
+      // Skipped under "force natural images" (keep everything counter-inverted).
+      const isBgIcon = el.tagName === "IMG" && hasBgImage && !forceImages &&
+          isBgFrontedImg(el);
+      if (isBgIcon) {
+        if (el.hasAttribute(BG_IMAGE_ATTR)) el.removeAttribute(BG_IMAGE_ATTR);
+        classifyBgIcon(el, bg);
+      } else {
+        if (el.hasAttribute(BG_ICON_ATTR)) el.removeAttribute(BG_ICON_ATTR);
+        if (hasBgImage && (forceImages || shouldReinvertBgImage(el, cs, bg))) {
+          el.setAttribute(BG_IMAGE_ATTR, "1");
+        } else if (el.hasAttribute(BG_IMAGE_ATTR)) {
+          el.removeAttribute(BG_IMAGE_ATTR);
+        }
       }
       if (tagNativeDarkBg(el, cs)) return;
       if (el.hasAttribute(NATIVE_DARK_ATTR)) {

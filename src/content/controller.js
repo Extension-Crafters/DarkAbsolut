@@ -34,7 +34,13 @@
     stableDarkConfirmed: false,
     watchersStarted: false,
     observer: null,
-    recheckTimers: []
+    recheckTimers: [],
+    // What an ancestor frame told us about its own inversion: true = it inverts
+    // (we must sit out), false = it does NOT (we must theme ourselves), null =
+    // unknown. Lets a cross-origin child stop assuming its parent inverts once
+    // the parent says otherwise (e.g. a natively-dark parent like plex.tv that
+    // embeds a light sign-in form iframe).
+    ancestorInvertedHint: null
   };
   const state = DA.state;
 
@@ -163,6 +169,13 @@
     } else {
       run();
     }
+    // Some themes apply element backgrounds via a stylesheet that loads AFTER
+    // our first pass (e.g. phpMyAdmin swaps each icon's real background-image in
+    // late). That's a CSS change with no element mutation, so the observer never
+    // fires — re-scan a few times so those backgrounds get (re)classified.
+    [700, 1800, 4000].forEach(ms => setTimeout(() => {
+      if (state.applied) { try { markBackgroundImageElements(document); } catch (_) {} }
+    }, ms));
     startObserver();
     state.applied = true;
     // Tell descendant frames to sit out — parent filter will invert them.
@@ -204,8 +217,13 @@
       run();
     }
     startObserver();
-    // Parent no longer inverting → let children take care of themselves.
+    // Parent no longer inverting → let children take care of themselves. Re-send
+    // after the DOM settles so a cross-origin iframe that mounts late (e.g. the
+    // plex.tv sign-in form from app.plex.tv) still learns the parent is dark and
+    // themes itself instead of sitting out forever.
     broadcastInversionToSubframes(false);
+    setTimeout(() => { if (!state.applied) broadcastInversionToSubframes(false); }, 400);
+    setTimeout(() => { if (!state.applied) broadcastInversionToSubframes(false); }, 1500);
   }
 
   // Hard disable for the page (global kill switch / domain opt-out).
@@ -371,9 +389,21 @@
       }
       return false;
     } catch (_) {
-      // Cross-origin: assume an invert filter may be in effect upstream.
-      return true;
+      // Cross-origin: we can't read the ancestor. Trust what it told us via
+      // postMessage if anything (hint===false → it is NOT inverting, so we must
+      // theme ourselves); otherwise assume it may be inverting (conservative,
+      // correct for the common "inverted admin panel embeds an iframe" case).
+      return state.ancestorInvertedHint !== false;
     }
+  }
+
+  // Ask the parent frame whether it is inverting (used when we'd otherwise sit
+  // out for a cross-origin ancestor we can't introspect). The parent replies via
+  // postMessage, which sets our hint and may un-suppress us. Robust to broadcast
+  // timing because the child initiates once it's ready.
+  function requestAncestorState() {
+    if (window === window.top) return;
+    try { window.parent.postMessage({ __darkabsolut_req: true }, "*"); } catch (_) {}
   }
 
   // ── Entry point ──────────────────────────────────────────────────────────
@@ -383,6 +413,10 @@
     if (ancestorIsInverted()) {
       disableForPage();
       state.lastEnabledRequest = false;
+      // We're sitting out on the assumption the (cross-origin) parent inverts.
+      // Confirm it: if it replies that it does NOT, we'll re-evaluate and theme
+      // ourselves (fixes a light iframe inside a natively-dark cross-origin page).
+      requestAncestorState();
       return;
     }
     let resp;
@@ -429,7 +463,13 @@
   // attribute synchronously).
   window.addEventListener("message", e => {
     const d = e && e.data;
-    if (!d || d.__darkabsolut !== true) return;
+    if (!d) return;
+    // A descendant frame asks whether we're inverting → reply with our state.
+    if (d.__darkabsolut_req === true) {
+      try { e.source && e.source.postMessage({ __darkabsolut: true, inverted: !!state.applied }, "*"); } catch (_) {}
+      return;
+    }
+    if (d.__darkabsolut !== true) return;
     // Only accept messages from an ancestor window, never from peers.
     try {
       let w = window.parent;
@@ -442,15 +482,18 @@
       }
       if (!isAncestor) return;
     } catch (_) { /* cross-origin walk threw — trust the sender */ }
+    state.ancestorInvertedHint = !!d.inverted;
     if (d.inverted) {
       if (state.applied || document.documentElement.hasAttribute(DA.ATTR)) {
         disableForPage();
       }
       state.lastEnabledRequest = false;
       state.suppressedByAncestor = true;
-    } else if (state.suppressedByAncestor) {
+    } else {
+      // Ancestor is NOT inverting — we must theme ourselves. Re-evaluate
+      // regardless of how we sat out (a message OR the cross-origin assumption),
+      // now that the hint lets ancestorIsInverted() return false.
       state.suppressedByAncestor = false;
-      // Parent turned inversion off — re-run the normal flow.
       evaluateAndApply();
     }
   });

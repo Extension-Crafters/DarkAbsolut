@@ -42,6 +42,14 @@ html[${ATTR}="on"] [${DA.NATIVE_DARK_ATTR}="1"] {
 html[${ATTR}="on"] svg:not([${DA.BG_IMAGE_ATTR}="1"]):not(:has(image)) {
   filter: none !important;
 }
+/* An <img> whose real content is a CSS background-image over a 1×1 placeholder
+   src (the phpMyAdmin icon pattern). The blanket img counter-invert keeps that
+   background at its original colour — fine for LIGHT icons (pmahomme), but for
+   DARK icons (e.g. the bootstrap theme) it leaves them dark-on-dark. elements.js
+   samples each icon's actual pixels and tags only the DARK ones here, so they
+   invert with the theme (dark → light) while light icons keep their counter-
+   invert. Sampling is what makes this safe across themes. */
+html[${ATTR}="on"] img[${DA.BG_ICON_ATTR}="1"] { filter: none !important; }
 /* ── Low-contrast text rescue ─────────────────────────────────────────────
    Force text that would otherwise render dark-on-dark to render light.
    Applied via an attribute + CSS rule (NEVER inline style) so it cannot churn
@@ -135,6 +143,7 @@ img, video, embed, object, canvas, svg image,
   filter: invert(1) hue-rotate(180deg) !important;
 }
 svg:not([${DA.BG_IMAGE_ATTR}="1"]):not(:has(image)) { filter: none !important; }
+img[${DA.BG_ICON_ATTR}="1"] { filter: none !important; }
 `;
   }
 
