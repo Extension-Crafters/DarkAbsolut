@@ -166,6 +166,17 @@ function activateTab(name) {
   });
 }
 
+// Show the real extension version from the manifest, so it never needs to be
+// kept in sync by hand (the single source of truth is manifest.json "version").
+function showVersion() {
+  const el = document.querySelector(".da-version");
+  if (!el) return;
+  try {
+    const v = chrome.runtime.getManifest().version;
+    if (v) el.textContent = "v" + v;
+  } catch (_) { /* not in an extension context */ }
+}
+
 function onOpenIoPage() {
   // The popup closes as soon as a file picker / download dialog steals
   // focus, which interrupts import/export work. Hand off to a real page.
@@ -185,5 +196,6 @@ document.addEventListener("DOMContentLoaded", () => {
     b.addEventListener("click", () => activateTab(b.dataset.tab));
   });
   $("da-open-io").addEventListener("click", onOpenIoPage);
+  showVersion();
   refresh();
 });
