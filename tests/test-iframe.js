@@ -24,11 +24,19 @@ const FORM = `<!doctype html><html><head><meta charset=utf-8><title>form</title>
 <style>html,body{margin:0;background:#ffffff;color:#111}</style></head>
 <body><h1>Sign in</h1><input placeholder=email><p>light form content</p></body></html>`;
 
-function parent(bg, color, iframeSrc) {
+// A DARK cross-origin iframe (e.g. a video ad / dark widget). Under a non-
+// inverting dark parent it must STAY NATIVE — inverting it would paint a light
+// block (the Twitch pre-roll-ad regression).
+const DARKFRAME = `<!doctype html><html><head><meta charset=utf-8><title>darkframe</title>
+<style>html,body{margin:0;background:#0e0e10;color:#eee}</style></head>
+<body><h1>Dark ad widget</h1><p>already-dark embedded content</p></body></html>`;
+
+function parent(bg, color, formSrc, darkSrc) {
   return `<!doctype html><html><head><meta charset=utf-8><title>parent</title>
 <style>html,body{margin:0;background:${bg};color:${color};font-family:sans-serif}</style></head>
 <body><h1>Parent</h1>
-<iframe src="${iframeSrc}" width="420" height="280" style="border:0"></iframe>
+<iframe id="lf" src="${formSrc}" width="420" height="280" style="border:0"></iframe>
+${darkSrc ? `<iframe id="df" src="${darkSrc}" width="420" height="280" style="border:0"></iframe>` : ''}
 ${'<p>parent filler text to dominate the viewport sampling. </p>'.repeat(30)}
 </body></html>`;
 }
@@ -54,11 +62,13 @@ async function frameRoot(page, needle) {
     const s = http.createServer((req, res) => {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
       if (req.url.startsWith('/form')) return res.end(FORM);
-      // iframe served from the OTHER origin (localhost) to be cross-origin.
+      if (req.url.startsWith('/darkframe')) return res.end(DARKFRAME);
+      // iframes served from the OTHER origin (localhost) to be cross-origin.
       const port = server.address().port;
-      const iframeSrc = `http://localhost:${port}/form`;
-      if (req.url.startsWith('/dark')) return res.end(parent('#111111', '#eee', iframeSrc));
-      return res.end(parent('#ffffff', '#111', iframeSrc));
+      const formSrc = `http://localhost:${port}/form`;
+      const darkSrc = `http://localhost:${port}/darkframe`;
+      if (req.url.startsWith('/dark')) return res.end(parent('#111111', '#eee', formSrc, darkSrc));
+      return res.end(parent('#ffffff', '#111', formSrc, null));
     });
     s.listen(0, '127.0.0.1', () => resolve(s));
   });
@@ -79,8 +89,10 @@ async function frameRoot(page, needle) {
     await page.waitForTimeout(2800);
     const darkParentRoot = await page.evaluate(() => document.documentElement.getAttribute('data-darkabsolut'));
     const darkIframeRoot = await frameRoot(page, '/form');
+    const darkContentIframeRoot = await frameRoot(page, '/darkframe');
     assert('dark parent is NOT inverted (native dark)', darkParentRoot !== 'on', `root=${darkParentRoot}`);
     assert('light iframe under dark parent inverts ITSELF', darkIframeRoot === 'on', `iframe root=${darkIframeRoot}`);
+    assert('DARK cross-origin iframe stays native (no light-block over-invert)', darkContentIframeRoot !== 'on', `iframe root=${darkContentIframeRoot}`);
 
     // 2) Light parent (127.0.0.1) embeds the same light cross-origin iframe.
     await page.goto(`http://127.0.0.1:${port}/light`, { waitUntil: 'load' });

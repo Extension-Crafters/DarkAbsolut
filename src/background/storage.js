@@ -4,6 +4,10 @@ export const DEFAULTS = {
   globalEnabled: true,
   // Each entry: { domain: "example.com", includeSubdomains: true }
   disabledDomains: [],
+  // Per-site "soft dark gray" contrast variant: lift pure black to dark gray so
+  // the inversion keeps visual depth instead of flattening to black. Same entry
+  // shape as disabledDomains (with includeSubdomains).
+  enhanceContrastDomains: [],
   // Domains where img / picture / background-image elements should NOT
   // get the counter-invert filter (extension stays active for the rest
   // of the page). Same entry shape as disabledDomains.

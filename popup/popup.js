@@ -34,6 +34,14 @@ function isCoveredByNoImgSubdomainRule(host) {
   return isCoveredBySubdomainRuleIn(state && state.noImageInversionDomains, host);
 }
 
+function findHcEntry(host) {
+  return findEntryIn(state && state.enhanceContrastDomains, host);
+}
+
+function isCoveredByHcSubdomainRule(host) {
+  return isCoveredBySubdomainRuleIn(state && state.enhanceContrastDomains, host);
+}
+
 function setDisabled(el, disabled) {
   el.disabled = !!disabled;
   el.closest(".da-row")?.classList.toggle("disabled", !!disabled);
@@ -63,13 +71,11 @@ async function refresh() {
   // or when only a parent subdomain rule covers this host.
   const siteCtrlsDisabled = !state.globalEnabled || restricted || coveredBySub;
   setDisabled($("da-domain"), siteCtrlsDisabled);
-  setDisabled($("da-sub"), siteCtrlsDisabled || !siteDisabled);
-
-  $("da-domain-desc").textContent = restricted
-    ? "Not applicable on this page."
-    : coveredBySub
-      ? "Disabled by a parent-domain rule."
-      : `Toggle off to disable on ${currentHostname}.`;
+  // Subdomain box: shown (and interactive) only once this feature has its own
+  // rule for this exact host — otherwise hidden, so there's never a dead,
+  // permanently-greyed checkbox. (Dark mode's rule exists when it's disabled.)
+  $("da-sub").hidden = !entry;
+  setDisabled($("da-sub"), siteCtrlsDisabled);
 
   // ── Don't-invert-images per-site option ────────────────────────────────
   const noImgEntry = findNoImgEntry(currentHostname);
@@ -83,19 +89,68 @@ async function refresh() {
   // active for this site (global on, not restricted, site not disabled).
   const noImgCtrlsDisabled = !state.globalEnabled || restricted || siteDisabled || coveredByNoImgSub;
   setDisabled($("da-noimg"), noImgCtrlsDisabled);
-  setDisabled($("da-noimg-sub"), noImgCtrlsDisabled || !noImgActive);
+  $("da-noimg-sub").hidden = !noImgEntry;
+  setDisabled($("da-noimg-sub"), noImgCtrlsDisabled);
 
-  $("da-noimg-desc").textContent = restricted
-    ? "Not applicable on this page."
-    : siteDisabled
-      ? "Site-wide disable is on; image option not needed."
-      : coveredByNoImgSub
-        ? "Already enforced by a parent-domain rule."
-        : `Force natural images on ${currentHostname}.`;
+  // ── Soft-dark-gray per-site option ─────────────────────────────────────
+  const hcEntry = findHcEntry(currentHostname);
+  const coveredByHcSub = isCoveredByHcSubdomainRule(currentHostname);
+  const hcActive = !!hcEntry || coveredByHcSub;
+
+  $("da-hc").checked = hcActive;
+  $("da-hc-sub").checked = !!(hcEntry && hcEntry.includeSubdomains);
+
+  const hcCtrlsDisabled = !state.globalEnabled || restricted || siteDisabled || coveredByHcSub;
+  setDisabled($("da-hc"), hcCtrlsDisabled);
+  $("da-hc-sub").hidden = !hcEntry;
+  setDisabled($("da-hc-sub"), hcCtrlsDisabled);
+
+  // Collapse the whole "subdomains" column when no feature has a per-site rule
+  // here — there's nothing to scope to subdomains, so don't show an empty,
+  // non-interactive column. It reappears the moment any feature gets a rule.
+  const anySub = !!entry || !!noImgEntry || !!hcEntry;
+  document.querySelector(".da-ptable")?.classList.toggle("da-no-subs", !anySub);
+
+  // Status line under the table (descriptions live in the column/feature
+  // tooltips and the "?" hints, so this only surfaces why controls are off).
+  const hint = $("da-hint");
+  if (hint) {
+    hint.textContent =
+      !state.globalEnabled ? "Master switch is off."
+        : restricted ? "Not available on this browser page."
+          : !currentHostname ? "No site in this tab."
+            : siteDisabled ? `Dark mode is off on ${currentHostname}.`
+              : "";
+  }
 }
 
 async function onGlobalChange(e) {
   await send({ type: "SET_GLOBAL_ENABLED", value: e.target.checked });
+  await refresh();
+}
+
+async function onHcChange(e) {
+  if (!currentHostname) return;
+  const includeSubdomains = $("da-hc-sub").checked;
+  await send({
+    type: "SET_DOMAIN_ENHANCE_CONTRAST",
+    hostname: currentHostname,
+    enabled: e.target.checked,
+    includeSubdomains
+  });
+  await refresh();
+}
+
+async function onHcSubChange(e) {
+  if (!currentHostname) return;
+  const entry = findHcEntry(currentHostname);
+  if (!entry) return; // only meaningful when soft-dark-gray is on for this host
+  await send({
+    type: "SET_DOMAIN_ENHANCE_CONTRAST",
+    hostname: currentHostname,
+    enabled: true,
+    includeSubdomains: e.target.checked
+  });
   await refresh();
 }
 
@@ -188,6 +243,15 @@ function onOpenIoPage() {
 document.addEventListener("DOMContentLoaded", () => {
   $("da-global").addEventListener("change", onGlobalChange);
   $("da-domain").addEventListener("change", onDomainChange);
+  $("da-hc").addEventListener("change", onHcChange);
+  $("da-hc-sub").addEventListener("change", onHcSubChange);
+  // "?" affordance (shown on touch devices): tap to surface a column/feature
+  // explanation in the hint line — the same text desktop shows on hover.
+  document.querySelectorAll(".da-q").forEach(b =>
+    b.addEventListener("click", () => {
+      const hint = $("da-hint");
+      if (hint) hint.textContent = b.getAttribute("data-hint") || "";
+    }));
   $("da-sub").addEventListener("change", onSubChange);
   $("da-noimg").addEventListener("change", onNoImgChange);
   $("da-noimg-sub").addEventListener("change", onNoImgSubChange);

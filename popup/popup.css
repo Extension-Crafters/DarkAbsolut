@@ -95,6 +95,60 @@ html, body {
 
 .da-row.disabled { opacity: .55; }
 
+/* ── Per-site feature table ───────────────────────────────────────────── */
+.da-persite { border-bottom: 1px solid var(--border); }
+.da-ptable { padding: 4px 14px 6px; }
+.da-prow {
+  display: grid;
+  grid-template-columns: 1fr 42px 42px;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+.da-prow:first-child { border-top: 0; }
+.da-phead { padding: 6px 0 4px; }
+.da-pcorner { font-size: 11px; color: var(--fg-dim); text-transform: uppercase; letter-spacing: .04em; }
+.da-pfeat { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.da-pfeat > span { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.da-pfeat .da-ico { color: var(--accent); }
+.da-pcol { display: flex; align-items: center; justify-content: center; gap: 2px; color: var(--fg-dim); cursor: help; }
+.da-pcell { display: flex; align-items: center; justify-content: center; }
+.da-ico { width: 17px; height: 17px; flex-shrink: 0; }
+.da-pcell input[type="checkbox"] {
+  width: 17px; height: 17px; margin: 0;
+  accent-color: var(--accent-2);
+  cursor: pointer;
+}
+.da-pcell input:disabled { opacity: .3; cursor: not-allowed; }
+.da-pcell input[hidden] { display: none; }
+
+/* When no feature has a per-site rule here, there's nothing to scope to
+   subdomains — drop the whole column instead of showing an empty, dead one. */
+.da-ptable.da-no-subs .da-prow { grid-template-columns: 1fr 42px; }
+.da-ptable.da-no-subs .da-pcol:last-child,
+.da-ptable.da-no-subs .da-pcell:last-child { display: none; }
+
+/* Help "?" — hidden on hover-capable (desktop) where the title tooltip works;
+   shown on touch devices (Firefox Android popup) where hover isn't ergonomic. */
+.da-q {
+  display: none;
+  border: 0; background: transparent; color: var(--fg-dim);
+  font: 600 11px/1 inherit; cursor: pointer; padding: 0;
+  width: 15px; height: 15px; border-radius: 50%; flex-shrink: 0;
+}
+@media (hover: none), (pointer: coarse) {
+  .da-q {
+    display: inline-flex; align-items: center; justify-content: center;
+    border: 1px solid var(--border);
+  }
+}
+.da-hint {
+  font-size: 11px; color: var(--fg-dim);
+  padding: 0 14px 8px;
+}
+.da-hint:empty { display: none; }
+
 .da-tabs {
   display: flex;
   border-bottom: 1px solid var(--border);

@@ -36,6 +36,14 @@ class SponsoredCard extends HTMLElement{
     var bg=document.createElement('div');bg.id='shadowbg';
     bg.style.cssText='width:200px;height:120px;background:url('+SRC+') no-repeat center / cover';
     sr.appendChild(bg);
+    // A natively-dark wrapper (inside shadow) holding a SMALL image: the wrapper
+    // is kept dark (darknative); its media must NOT also be counter-inverted, or
+    // it triple-inverts to a colour-negative. Exercises the shadow-scoped
+    // [darknative] media{filter:none} rule.
+    var dwrap=document.createElement('div');dwrap.id='shadowdark';
+    dwrap.style.cssText='width:300px;height:160px;background:#0a0a0a;color:#eee;padding:8px';
+    var di=document.createElement('img');di.id='shadowdarkimg';di.width=80;di.height=40;di.src=SRC;
+    dwrap.appendChild(di);sr.appendChild(dwrap);
     // lazily mount a second image to exercise the shadow observer
     setTimeout(function(){var l=document.createElement('img');l.id='shadowlazy';l.width=200;l.height=120;l.src=SRC;sr.appendChild(l);},700);
   }
@@ -63,6 +71,8 @@ function probe() {
     shadowBg: inv(f(sr && sr.getElementById('shadowbg'))),
     shadowBgTagged: sr && sr.getElementById('shadowbg') ? sr.getElementById('shadowbg').getAttribute('data-darkabsolut-bg') : null,
     shadowLazy: (() => { const el = sr && sr.getElementById('shadowlazy'); return el ? inv(f(el)) : 'absent'; })(),
+    shadowDarkTagged: sr && sr.getElementById('shadowdark') ? sr.getElementById('shadowdark').getAttribute('data-darkabsolut-darknative') : null,
+    shadowDarkImg: (() => { const el = sr && sr.getElementById('shadowdarkimg'); return el ? inv(f(el)) : 'absent'; })(),
   };
 }
 
@@ -98,6 +108,12 @@ function probe() {
     assert('shadow-DOM bg-image counter-inverted', r.shadowBg === true);
     assert('lazily-added shadow <img> counter-inverted', r.shadowLazy === true,
            `shadowLazy=${r.shadowLazy}`);
+    // Media inside a kept-dark wrapper *in shadow DOM* must be neutralised, not
+    // triple-inverted (the shadow-scoped darknative-media rule).
+    assert('shadow dark wrapper kept dark (darknative)', r.shadowDarkTagged === '1',
+           `tagged=${r.shadowDarkTagged}`);
+    assert('media inside shadow darknative NOT counter-inverted', r.shadowDarkImg === false,
+           `inv=${r.shadowDarkImg}`);
 
     // ── Disable for the page → shadow counter-invert styles must be removed ──
     if (extId) {

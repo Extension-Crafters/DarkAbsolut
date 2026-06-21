@@ -22,18 +22,24 @@ const DOT = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABA
 const RED = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEElEQVR4nGP8z8Dwn4EIwAgAJAUH/Vn5d8AAAAAASUVORK5CYII=';
 // Dark icon (fill #222) and light icon (fill #ddd), each painted as a repeating
 // background-image (mimicking the bootstrap theme's `background-repeat:repeat`).
-const SVG = (hex) => `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Crect x='2' y='2' width='20' height='20' fill='%23${hex}'/%3E%3C/svg%3E")`;
+const SVG = (hex, w = 24, h = 24, rw = 20, rh = 20) => `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='${w}' height='${h}'%3E%3Crect x='2' y='2' width='${rw}' height='${rh}' fill='%23${hex}'/%3E%3C/svg%3E")`;
+// A WHITE monochrome logo as a real <img> src (the omori store-badge case).
+const WHITE_LOGO = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='40'%3E%3Crect x='4' y='4' width='92' height='32' fill='%23ffffff'/%3E%3C/svg%3E";
 
 const PAGE = `<!doctype html><html><head><meta charset=utf-8><title>bgicon</title>
 <style>
   html,body{margin:0;background:#fff;font-family:sans-serif}
   .dark{display:inline-block;width:24px;height:24px;background:${SVG('222222')} repeat}
   .light{display:inline-block;width:24px;height:24px;background:${SVG('dddddd')} repeat}
+  /* black button fronting a white logo <img> (omori "available on" buttons) */
+  .darkbtn{display:inline-block;background:#000000;padding:6px}
+  .darkbtn img{display:block;width:100px;height:40px}
 </style></head>
 <body>
   <img class="dark"  id="dark"  src="${DOT}" alt="">
   <img class="light" id="light" src="${DOT}" alt="">
   <img id="photo" src="${RED}" width="64" height="64" alt="">
+  <span class="darkbtn"><img id="logo" src="${WHITE_LOGO}" alt=""></span>
   ${'<p>filler text to fill the viewport. </p>'.repeat(25)}
 </body></html>`;
 
@@ -94,9 +100,20 @@ function brightFrac(buf, thr = 0.5) {
     const lightBf = brightFrac(await page.locator('#light').screenshot());
     assert('light icon stays readable', lightBf > 0.1, `brightFrac=${lightBf.toFixed(4)}`);
 
-    // Real photo img: not bg-fronted → keeps counter-invert (true colours).
+    // Real photo img: not bg-fronted, NOT monochrome → keeps counter-invert.
     assert('real photo img NOT tagged bgicon', r.photoBgIcon !== '1', `bgicon=${r.photoBgIcon}`);
     assert('real photo img keeps counter-invert', /invert/.test(r.photoFilter), `filter=${r.photoFilter}`);
+
+    // Real <img> WHITE logo on a black button (omori): the button page-inverts to
+    // white; the white logo must invert too (→ dark) so it stays visible.
+    const logo = await page.evaluate(() => ({
+      bgicon: document.getElementById('logo').getAttribute('data-darkabsolut-bgicon'),
+      filter: getComputedStyle(document.getElementById('logo')).filter,
+    }));
+    assert('white logo on dark button tagged (invert with theme)', logo.bgicon === '1', `bgicon=${logo.bgicon}`);
+    assert('white logo filter neutralised', logo.filter === 'none', `filter=${logo.filter}`);
+    const logoBf = brightFrac(await page.locator('#logo').screenshot());
+    assert('white logo now renders dark (visible on white button)', logoBf < 0.4, `brightFrac=${logoBf.toFixed(4)}`);
   } finally {
     await context.close();
     server.close();

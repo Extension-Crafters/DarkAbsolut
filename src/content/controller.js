@@ -9,10 +9,13 @@
 (function (DA) {
   "use strict";
 
-  const { ensureStyle, ensureAttributeAndStyle, setImageInversionDisabled } = DA.styles;
+  const {
+    ensureStyle, ensureAttributeAndStyle, setImageInversionDisabled, setEnhanceContrast
+  } = DA.styles;
   const {
     pageDeclaresDarkScheme,
     effectiveBgColor,
+    pageBaseIsDark,
     allStylesheetsLoaded
   } = DA.detect;
   const { isNeutralDark } = DA.colors;
@@ -40,7 +43,9 @@
     // unknown. Lets a cross-origin child stop assuming its parent inverts once
     // the parent says otherwise (e.g. a natively-dark parent like plex.tv that
     // embeds a light sign-in form iframe).
-    ancestorInvertedHint: null
+    ancestorInvertedHint: null,
+    // Per-site soft-dark-gray contrast (mirrored from settings each evaluate).
+    enhanceContrast: false
   };
   const state = DA.state;
 
@@ -231,6 +236,7 @@
   function disableForPage() {
     document.documentElement.removeAttribute(DA.ATTR);
     document.documentElement.removeAttribute(DA.NOIMG_ATTR);
+    setEnhanceContrast(false);
     const style = document.getElementById(DA.STYLE_ID);
     if (style) style.remove();
     stopObserver();
@@ -271,10 +277,21 @@
     }
 
     if (verdict === true) {
-      state.stableDarkConfirmed = true;
-      // Idempotent: ensures the stylesheet + observer + initial island
-      // scan are in place even if we already transitioned to dark-mode.
-      unapplyRootInversion();
+      // effectiveBgColor() samples the *current viewport*, so scrolling a dark
+      // footer/hero into view produces a dark verdict on an otherwise-light
+      // page. Once we've already inverted, only undo it for a scroll-
+      // independent signal — a declared dark scheme or a genuinely dark
+      // base/canvas (a real theme change) — never just because a dark section
+      // scrolled into view. (At load, scroll=0, so first-time detection below
+      // is unaffected.)
+      if (state.applied && !pageDeclaresDarkScheme() && !pageBaseIsDark()) {
+        ensureAttributeAndStyle();
+      } else {
+        state.stableDarkConfirmed = true;
+        // Idempotent: ensures the stylesheet + observer + initial island
+        // scan are in place even if we already transitioned to dark-mode.
+        unapplyRootInversion();
+      }
     } else if (verdict === false) {
       // Light (or unknown styled as default white) -> keep / apply inversion,
       // but don't re-apply if we've already decided the site is stably dark.
@@ -431,7 +448,9 @@
     const prevImageInversionDisabled = !!state.imageInversionDisabled;
     state.imageInversionDisabled = !!resp.imageInversionDisabled;
     setImageInversionDisabled(state.imageInversionDisabled && state.lastEnabledRequest);
+    state.enhanceContrast = !!resp.enhanceContrast;
     if (!resp.enabled) { disableForPage(); return; }
+    setEnhanceContrast(state.enhanceContrast);
     // If the per-site "Force natural images" flag changed while inversion
     // is already applied, re-run element tagging so the bg-image heuristic
     // re-evaluates with the new flag value.
@@ -447,9 +466,16 @@
     if (pageDeclaresDarkScheme()) {
       state.stableDarkConfirmed = true;
       unapplyRootInversion();
-    } else {
+    } else if (window === window.top) {
+      // Optimistic pre-apply avoids a white flash on light top-level pages.
       apply();
     }
+    // else: a subframe under a non-inverting ancestor. Do NOT optimistically
+    // invert — most cross-origin subframes are ads / trackers / extension
+    // overlays that must stay native (blanket-inverting a Twitch pre-roll ad
+    // iframe paints a light block in place of the video). reevaluate() below
+    // applies() only when it positively detects a light background (e.g. the
+    // Plex sign-in form), so genuinely-light embedded forms still get themed.
 
     // 2) Once the body exists, measure and start watchers.
     const init = () => { reevaluate(); startThemeWatchers(); };

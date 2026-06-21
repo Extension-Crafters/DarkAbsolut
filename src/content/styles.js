@@ -13,6 +13,13 @@
 html[${ATTR}="on"] {
   filter: invert(1) hue-rotate(180deg) !important;
 }
+/* Soft dark-gray contrast variant (per-site opt-in): lift pure black to dark
+   gray so the inverted page keeps visual depth instead of flattening to black.
+   contrast(<1) raises blacks (white → ~#1a1a1a, black → ~off-white). Higher
+   specificity than the base rule so it wins when the attribute is set. Tunable. */
+html[${ATTR}="on"][${DA.HC_ATTR}="1"] {
+  filter: invert(1) hue-rotate(180deg) contrast(0.8) !important;
+}
 /* Zero-specificity fallback bg: any site rule (e.g. html.dark { background })
    wins so effectiveBgColor() can read the real native bg and detect dark.
    A higher-specificity override on <html> would mask the site's real
@@ -50,6 +57,31 @@ html[${ATTR}="on"] svg:not([${DA.BG_IMAGE_ATTR}="1"]):not(:has(image)) {
    invert with the theme (dark → light) while light icons keep their counter-
    invert. Sampling is what makes this safe across themes. */
 html[${ATTR}="on"] img[${DA.BG_ICON_ATTR}="1"] { filter: none !important; }
+/* Media inside a darknative (kept-dark) wrapper must NOT also be counter-
+   inverted. The wrapper's own invert already restores its whole subtree to the
+   original rendering, so a SECOND counter-invert on the media makes a third
+   total inversion → a colour-negative photo/icon. This is what flipped images
+   inside natively-dark sections (logos in the KYM header; a beach/island photo
+   beside a hero illustration) even with "natural images" on. With this rule the
+   wrapper keeps the region dark while its media shows true colours. More
+   specific than the blanket counter-invert rules above, so it wins. */
+html[${ATTR}="on"] [${DA.NATIVE_DARK_ATTR}="1"] img,
+html[${ATTR}="on"] [${DA.NATIVE_DARK_ATTR}="1"] video,
+html[${ATTR}="on"] [${DA.NATIVE_DARK_ATTR}="1"] embed,
+html[${ATTR}="on"] [${DA.NATIVE_DARK_ATTR}="1"] object,
+html[${ATTR}="on"] [${DA.NATIVE_DARK_ATTR}="1"] canvas,
+html[${ATTR}="on"] [${DA.NATIVE_DARK_ATTR}="1"] svg image,
+html[${ATTR}="on"] [${DA.NATIVE_DARK_ATTR}="1"] [${DA.BG_IMAGE_ATTR}="1"] {
+  filter: none !important;
+}
+/* …but a dark bg-fronted ICON inside a kept-dark wrapper still needs ONE
+   counter-invert to stay visible: the wrapper's invert + the page invert are
+   even (icon would render dark-on-dark). Give it back its counter-invert so
+   the dark glyph flips light. More specific than the rule above (extra
+   [darknative] ancestor), so it wins. */
+html[${ATTR}="on"] [${DA.NATIVE_DARK_ATTR}="1"] img[${DA.BG_ICON_ATTR}="1"] {
+  filter: invert(1) hue-rotate(180deg) !important;
+}
 /* ── Low-contrast text rescue ─────────────────────────────────────────────
    Force text that would otherwise render dark-on-dark to render light.
    Applied via an attribute + CSS rule (NEVER inline style) so it cannot churn
@@ -108,11 +140,18 @@ html:not([${ATTR}="on"]) [${DA.NATIVE_LIGHT_ATTR}="1"] svg:not([${DA.BG_IMAGE_AT
     return style;
   }
 
+  // Desired soft-dark-gray state for this page; re-applied on self-heal so a
+  // framework that resets <html> attributes doesn't silently drop it.
+  let enhanceContrastOn = false;
+
   // Re-add our attribute / style node if a framework (e.g. React hydration,
   // next-themes) wiped them while we still believe inversion should be on.
   function ensureAttributeAndStyle() {
     if (document.documentElement.getAttribute(DA.ATTR) !== "on") {
       document.documentElement.setAttribute(DA.ATTR, "on");
+    }
+    if (enhanceContrastOn && document.documentElement.getAttribute(DA.HC_ATTR) !== "1") {
+      document.documentElement.setAttribute(DA.HC_ATTR, "1");
     }
     if (!document.getElementById(DA.STYLE_ID)) {
       ensureStyle();
@@ -127,6 +166,16 @@ html:not([${ATTR}="on"]) [${DA.NATIVE_LIGHT_ATTR}="1"] svg:not([${DA.BG_IMAGE_AT
     if (!html) return;
     if (disabled) html.setAttribute(DA.NOIMG_ATTR, "1");
     else html.removeAttribute(DA.NOIMG_ATTR);
+  }
+
+  // Toggle the soft-dark-gray contrast flag on <html>. The CSS rule keyed off
+  // this attribute (gated on the inversion being active) does the rest.
+  function setEnhanceContrast(on) {
+    enhanceContrastOn = !!on;
+    const html = document.documentElement;
+    if (!html) return;
+    if (enhanceContrastOn) html.setAttribute(DA.HC_ATTR, "1");
+    else html.removeAttribute(DA.HC_ATTR);
   }
 
   // ── Shadow DOM support ───────────────────────────────────────────────────
@@ -144,6 +193,18 @@ img, video, embed, object, canvas, svg image,
 }
 svg:not([${DA.BG_IMAGE_ATTR}="1"]):not(:has(image)) { filter: none !important; }
 img[${DA.BG_ICON_ATTR}="1"] { filter: none !important; }
+[${DA.NATIVE_DARK_ATTR}="1"] img,
+[${DA.NATIVE_DARK_ATTR}="1"] video,
+[${DA.NATIVE_DARK_ATTR}="1"] embed,
+[${DA.NATIVE_DARK_ATTR}="1"] object,
+[${DA.NATIVE_DARK_ATTR}="1"] canvas,
+[${DA.NATIVE_DARK_ATTR}="1"] svg image,
+[${DA.NATIVE_DARK_ATTR}="1"] [${DA.BG_IMAGE_ATTR}="1"] {
+  filter: none !important;
+}
+[${DA.NATIVE_DARK_ATTR}="1"] img[${DA.BG_ICON_ATTR}="1"] {
+  filter: invert(1) hue-rotate(180deg) !important;
+}
 `;
   }
 
@@ -196,6 +257,7 @@ img[${DA.BG_ICON_ATTR}="1"] { filter: none !important; }
     ensureStyle,
     ensureAttributeAndStyle,
     setImageInversionDisabled,
+    setEnhanceContrast,
     applyShadowStyle,
     removeShadowStyle
   };

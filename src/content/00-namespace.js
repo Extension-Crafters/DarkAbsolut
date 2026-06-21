@@ -18,3 +18,4 @@ DA.BG_ICON_ATTR = "data-darkabsolut-bgicon";
 DA.NATIVE_DARK_ATTR = "data-darkabsolut-darknative";
 DA.NATIVE_LIGHT_ATTR = "data-darkabsolut-lightnative";
 DA.NOIMG_ATTR = "data-darkabsolut-noimg";
+DA.HC_ATTR = "data-darkabsolut-hc";

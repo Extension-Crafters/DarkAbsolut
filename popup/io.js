@@ -46,6 +46,9 @@ async function onExport() {
         : [],
       noImageInversionDomains: Array.isArray(currentState.noImageInversionDomains)
         ? currentState.noImageInversionDomains
+        : [],
+      enhanceContrastDomains: Array.isArray(currentState.enhanceContrastDomains)
+        ? currentState.enhanceContrastDomains
         : []
     };
     const json = JSON.stringify(payload, null, 2);
@@ -111,6 +114,7 @@ async function onImportFile(e) {
     setStep("validate", "active");
     const v = validateEntries(data.disabledDomains);
     const vNoImg = validateEntries(data.noImageInversionDomains);
+    const vHc = validateEntries(data.enhanceContrastDomains);
     const globalEnabled = typeof data.globalEnabled === "boolean" ? data.globalEnabled : true;
     $("sum-found").textContent = String(v.found);
     $("sum-skipped").textContent = String(v.skipped);
@@ -126,7 +130,8 @@ async function onImportFile(e) {
       data: {
         globalEnabled,
         disabledDomains: v.kept,
-        noImageInversionDomains: vNoImg.kept
+        noImageInversionDomains: vNoImg.kept,
+        enhanceContrastDomains: vHc.kept
       }
     });
     if (!r || !r.ok) throw new Error((r && r.error) || "Background rejected the import.");

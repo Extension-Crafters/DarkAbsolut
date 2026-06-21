@@ -34,49 +34,52 @@
       </label>
     </section>
 
-    <section class="da-row" id="da-domain-row">
-      <div class="da-row-text">
-        <div class="da-row-title">Enable on this site</div>
-        <div class="da-row-desc" id="da-domain-desc">Toggle off to disable on the current domain.</div>
-      </div>
-      <label class="da-switch">
-        <input type="checkbox" id="da-domain" />
-        <span class="da-slider"></span>
-      </label>
-    </section>
+    <div class="da-persite" id="da-persite">
+      <div class="da-ptable">
+        <div class="da-prow da-phead">
+          <div class="da-pfeat da-pcorner">Per-site</div>
+          <div class="da-pcol" title="On this exact host only">
+            <svg class="da-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2" fill="currentColor"/><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+            <button type="button" class="da-q" data-hint="This host: applies on this exact site only.">?</button>
+          </div>
+          <div class="da-pcol" title="Also apply to all subdomains">
+            <svg class="da-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="3" width="6" height="5" rx="1"/><rect x="2.5" y="16" width="6" height="5" rx="1"/><rect x="15.5" y="16" width="6" height="5" rx="1"/><path d="M12 8v3M5.5 16v-2.5h13V16"/></svg>
+            <button type="button" class="da-q" data-hint="Subdomains: also applies to every subdomain (*.host).">?</button>
+          </div>
+        </div>
 
-    <section class="da-row da-row-sub" id="da-sub-row">
-      <div class="da-row-text">
-        <div class="da-row-title">Include subdomains</div>
-        <div class="da-row-desc" id="da-sub-desc">Apply the disable to all subdomains.</div>
-      </div>
-      <label class="da-switch">
-        <input type="checkbox" id="da-sub" />
-        <span class="da-slider"></span>
-      </label>
-    </section>
+        <div class="da-prow" id="da-domain-row">
+          <div class="da-pfeat" title="Dark mode (the inversion). Uncheck to turn it off here.">
+            <svg class="da-ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+            <span>Dark mode</span>
+            <button type="button" class="da-q" data-hint="Dark mode: the inversion. Uncheck to turn it off on this site.">?</button>
+          </div>
+          <div class="da-pcell"><input type="checkbox" id="da-domain" aria-label="Dark mode on this host" /></div>
+          <div class="da-pcell"><input type="checkbox" id="da-sub" aria-label="Dark mode on subdomains" /></div>
+        </div>
 
-    <section class="da-row" id="da-noimg-row">
-      <div class="da-row-text">
-        <div class="da-row-title">Force natural images</div>
-        <div class="da-row-desc" id="da-noimg-desc">Ensure every &lt;img&gt;, &lt;picture&gt; and background-image element keeps its original colors on this site, even ones the auto-heuristic would skip.</div>
-      </div>
-      <label class="da-switch">
-        <input type="checkbox" id="da-noimg" />
-        <span class="da-slider"></span>
-      </label>
-    </section>
+        <div class="da-prow" id="da-noimg-row">
+          <div class="da-pfeat" title="Keep every image's original colours (skip the auto heuristic).">
+            <svg class="da-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.6" fill="currentColor" stroke="none"/><path d="M21 15l-5-4L5 20"/></svg>
+            <span>Natural images</span>
+            <button type="button" class="da-q" data-hint="Natural images: keep every image's original colours, even ones the auto heuristic would skip.">?</button>
+          </div>
+          <div class="da-pcell"><input type="checkbox" id="da-noimg" aria-label="Natural images on this host" /></div>
+          <div class="da-pcell"><input type="checkbox" id="da-noimg-sub" aria-label="Natural images on subdomains" /></div>
+        </div>
 
-    <section class="da-row da-row-sub" id="da-noimg-sub-row">
-      <div class="da-row-text">
-        <div class="da-row-title">Include subdomains</div>
-        <div class="da-row-desc" id="da-noimg-sub-desc">Also force natural images on all subdomains.</div>
+        <div class="da-prow" id="da-hc-row">
+          <div class="da-pfeat" title="Lift pure black to dark gray so the dark theme keeps depth.">
+            <svg class="da-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path fill="currentColor" d="M12 3a9 9 0 0 1 0 18z"/></svg>
+            <span>Soft dark gray</span>
+            <button type="button" class="da-q" data-hint="Soft dark gray: lift pure black to dark gray so the page keeps visual depth instead of flattening to black.">?</button>
+          </div>
+          <div class="da-pcell"><input type="checkbox" id="da-hc" aria-label="Soft dark gray on this host" /></div>
+          <div class="da-pcell"><input type="checkbox" id="da-hc-sub" aria-label="Soft dark gray on subdomains" /></div>
+        </div>
       </div>
-      <label class="da-switch">
-        <input type="checkbox" id="da-noimg-sub" />
-        <span class="da-slider"></span>
-      </label>
-    </section>
+      <div class="da-hint" id="da-hint" aria-live="polite"></div>
+    </div>
   </div>
 
   <div class="da-tab-panel" data-panel="io">

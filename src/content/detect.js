@@ -41,6 +41,33 @@
     return null;
   }
 
+  // The color the UA paints behind fully-transparent content — the "canvas".
+  // Per CSS background propagation that's the root element's background, else
+  // <body>'s, else the UA default (white). We ignore our own injected
+  // white-on-<html> fallback so re-evaluation reads the page's real base.
+  //
+  // This matters because a transparent sample point is NOT "no information":
+  // it's whatever the canvas paints there. Sites that leave <body>/<html>
+  // transparent and rely on the default white canvas (e.g. Know Your Meme,
+  // where a tall dark hero is the only element with an explicit background)
+  // were otherwise mis-read as dark, because every white point was dropped
+  // and only the opaque dark hero got counted.
+  function canvasBgColor() {
+    const html = document.documentElement, body = document.body;
+    if (html) {
+      const hc = parseColor(getComputedStyle(html).backgroundColor);
+      if (hc && hc.a > 0.5 &&
+          !(DA.state && DA.state.applied && hc.r === 255 && hc.g === 255 && hc.b === 255)) {
+        return hc;
+      }
+    }
+    if (body) {
+      const bc = parseColor(getComputedStyle(body).backgroundColor);
+      if (bc && bc.a > 0.5) return bc;
+    }
+    return { r: 255, g: 255, b: 255, a: 1 };
+  }
+
   // Sample the rendered viewport at a grid of points and return the dominant
   // visible background color (area-weighted by sample count). Robust to
   // descendant containers that cover the viewport when <body> is white
@@ -51,6 +78,7 @@
     if (W < 50 || H < 50) return [];
     const fxs = [0.1, 0.3, 0.5, 0.7, 0.9];
     const fys = [0.15, 0.35, 0.55, 0.75, 0.92];
+    const canvasBg = canvasBgColor();
     const out = [];
     for (const fx of fxs) {
       for (const fy of fys) {
@@ -59,8 +87,8 @@
         let el;
         try { el = document.elementFromPoint(x, y); } catch (_) { el = null; }
         if (!el) continue;
-        const c = firstOpaqueBgUp(el);
-        if (c) out.push(c);
+        // A transparent point shows the canvas — count it, don't drop it.
+        out.push(firstOpaqueBgUp(el) || canvasBg);
       }
     }
     return out;
@@ -86,6 +114,7 @@
       // Bottom edge.
       [0.20, 0.97], [0.50, 0.97], [0.80, 0.97]
     ];
+    const canvasBg = canvasBgColor();
     const out = [];
     for (const [fx, fy] of points) {
       const x = Math.max(1, Math.min(W - 2, Math.floor(W * fx)));
@@ -93,8 +122,8 @@
       let el;
       try { el = document.elementFromPoint(x, y); } catch (_) { el = null; }
       if (!el) continue;
-      const c = firstOpaqueBgUp(el);
-      if (c) out.push(c);
+      // A transparent edge shows the canvas — count it as such, don't drop it.
+      out.push(firstOpaqueBgUp(el) || canvasBg);
     }
     return out;
   }
@@ -174,6 +203,23 @@
     return null;
   }
 
+  // Scroll-independent "is the page's theme dark?" signal: a dark base/canvas
+  // background, or an explicitly-dark primary content container. Unlike
+  // effectiveBgColor() this does NOT sample the current viewport, so it can't
+  // be fooled by a dark footer/hero scrolled into view. Re-evaluation uses it
+  // to avoid un-inverting an already-inverted light page on scroll.
+  function pageBaseIsDark() {
+    try {
+      const mainEl = document.querySelector('main, [role="main"]');
+      if (mainEl) {
+        const mc = parseColor(getComputedStyle(mainEl).backgroundColor);
+        if (mc && mc.a > 0.5 && isNeutralDark(mc)) return true;
+      }
+    } catch (_) {}
+    const c = canvasBgColor();
+    return !!c && isNeutralDark(c);
+  }
+
   function pageDeclaresDarkScheme() {
     const html = document.documentElement;
     if (!html) return false;
@@ -210,9 +256,11 @@
 
   DA.detect = {
     firstOpaqueBgUp,
+    canvasBgColor,
     sampleViewportBgColors,
     sampleChromeBgColors,
     effectiveBgColor,
+    pageBaseIsDark,
     pageDeclaresDarkScheme,
     allStylesheetsLoaded,
     detectDarkState

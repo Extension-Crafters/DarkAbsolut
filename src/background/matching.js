@@ -53,13 +53,13 @@ export function isHostDisabled(hostname, disabledDomains) {
 
 export async function shouldEnableForUrl(url) {
   const state = await getState();
-  if (!state.globalEnabled) return { enabled: false, imageInversionDisabled: false, state };
+  const off = { enabled: false, imageInversionDisabled: false, enhanceContrast: false, state };
+  if (!state.globalEnabled) return off;
   const host = hostnameFromUrl(url);
-  if (!host) return { enabled: false, imageInversionDisabled: false, state };
-  if (isRestrictedUrl(url)) return { enabled: false, imageInversionDisabled: false, state };
-  if (isHostDisabled(host, state.disabledDomains)) {
-    return { enabled: false, imageInversionDisabled: false, state };
-  }
+  if (!host) return off;
+  if (isRestrictedUrl(url)) return off;
+  if (isHostDisabled(host, state.disabledDomains)) return off;
   const imageInversionDisabled = isHostDisabled(host, state.noImageInversionDomains || []);
-  return { enabled: true, imageInversionDisabled, state };
+  const enhanceContrast = isHostDisabled(host, state.enhanceContrastDomains || []);
+  return { enabled: true, imageInversionDisabled, enhanceContrast, state };
 }

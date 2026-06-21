@@ -29,7 +29,8 @@ function sanitizeImportedData(data) {
       ? data.globalEnabled
       : DEFAULTS.globalEnabled,
     disabledDomains: sanitizeDomainList(data.disabledDomains),
-    noImageInversionDomains: sanitizeDomainList(data.noImageInversionDomains)
+    noImageInversionDomains: sanitizeDomainList(data.noImageInversionDomains),
+    enhanceContrastDomains: sanitizeDomainList(data.enhanceContrastDomains)
   };
 }
 
@@ -53,6 +54,7 @@ async function handle(msg, sender) {
         ok: true,
         enabled: res.enabled,
         imageInversionDisabled: !!res.imageInversionDisabled,
+        enhanceContrast: !!res.enhanceContrast,
         state: res.state
       };
     }
@@ -62,6 +64,17 @@ async function handle(msg, sender) {
     }
     case "SET_GLOBAL_ENABLED": {
       const next = await setState({ globalEnabled: !!msg.value });
+      await broadcastUpdate();
+      return { ok: true, state: next };
+    }
+    case "SET_DOMAIN_ENHANCE_CONTRAST": {
+      const state = await getState();
+      const host = (msg.hostname || "").toLowerCase();
+      const includeSubdomains = !!msg.includeSubdomains;
+      const cur = state.enhanceContrastDomains || [];
+      const list = cur.filter(e => e.domain.toLowerCase() !== host);
+      if (msg.enabled) list.push({ domain: host, includeSubdomains });
+      const next = await setState({ enhanceContrastDomains: list });
       await broadcastUpdate();
       return { ok: true, state: next };
     }
@@ -107,13 +120,16 @@ async function handle(msg, sender) {
       const noImageInversionDomains = (state.noImageInversionDomains || []).filter(
         e => e.domain.toLowerCase() !== host
       );
-      const next = await setState({ disabledDomains, noImageInversionDomains });
+      const enhanceContrastDomains = (state.enhanceContrastDomains || []).filter(
+        e => e.domain.toLowerCase() !== host
+      );
+      const next = await setState({ disabledDomains, noImageInversionDomains, enhanceContrastDomains });
       await broadcastUpdate();
       return { ok: true, state: next };
     }
     case "CLEAR_ALL_DOMAINS": {
       // Drop every per-site override; keep the global master switch as-is.
-      const next = await setState({ disabledDomains: [], noImageInversionDomains: [] });
+      const next = await setState({ disabledDomains: [], noImageInversionDomains: [], enhanceContrastDomains: [] });
       await broadcastUpdate();
       return { ok: true, state: next };
     }

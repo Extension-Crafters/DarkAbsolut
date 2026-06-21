@@ -27,6 +27,14 @@
   // Opaque background luminance above which an element's background is
   // considered "light". Matches the threshold used by detect.js sampling.
   const LIGHT_ISLAND_MIN_LUM = 0.80;
+  // Fraction of a dark wrapper a light child must cover before it blocks
+  // counter-inverting that wrapper. The guard exists for "dark frame around a
+  // large white content panel" (tagging would keep the panel white in dark
+  // mode). A small light widget — a divider strip, a search box, a badge —
+  // inside a big dark footer/section should NOT veto the whole wrapper: doing
+  // so flips the entire dark area to light (mesepices footer: a 9.7% white
+  // strip was turning the whole 1280×595 footer light).
+  const LIGHT_CHILD_VETO_RATIO = 0.5;
 
   // Form controls get browser-injected background-images (dropdown arrows,
   // spinners) that don't need re-inversion — the html-level filter is enough.
@@ -46,17 +54,23 @@
   }
 
   // Returns true if any visible (not display:none/hidden) direct or nested
-  // child up to `depth` levels has a light opaque background. Used to detect
-  // wrapper elements whose counter-filter would double-invert a white panel
-  // inside them back to white (the cascade problem).
-  function hasVisibleLightDescendant(el, depth) {
+  // child up to `depth` levels has a light opaque background that is LARGE
+  // enough (>= `minArea` px²) to dominate the wrapper. Used to detect wrapper
+  // elements whose counter-filter would double-invert a white panel inside
+  // them back to white (the cascade problem). A small light widget doesn't
+  // count — see LIGHT_CHILD_VETO_RATIO.
+  function hasVisibleLightDescendant(el, depth, minArea) {
     for (const child of el.children) {
       let cs;
       try { cs = getComputedStyle(child); } catch (_) { continue; }
       if (cs.display === "none" || cs.visibility === "hidden") continue;
       const c = parseColor(cs.backgroundColor);
-      if (c && c.a > 0.4 && luminance(c) > 0.50) return true;
-      if (depth > 1 && hasVisibleLightDescendant(child, depth - 1)) return true;
+      if (c && c.a > 0.4 && luminance(c) > 0.50) {
+        if (!minArea) return true;
+        let r; try { r = child.getBoundingClientRect(); } catch (_) { r = null; }
+        if (r && r.width * r.height >= minArea) return true;
+      }
+      if (depth > 1 && hasVisibleLightDescendant(child, depth - 1, minArea)) return true;
     }
     return false;
   }
@@ -75,16 +89,24 @@
     const maxSat = nativeDarkMaxSat(lum);
     const sat = DA.colors.saturation(c);
     if (lum < 0.10 && sat < maxSat) {
-      // Don't tag a wrapper whose counter-filter would double-invert a
-      // visible white child. Let the children be processed individually.
-      if (hasVisibleLightDescendant(el, 3)) return false;
-      // Don't tag a wrapper that fronts a large image/video. That media is
+      // Don't tag a wrapper whose counter-filter would double-invert a LARGE
+      // visible white panel (a dark frame around light content). A small light
+      // widget inside a big dark wrapper must not veto tagging — otherwise the
+      // whole dark area flips to light. Scale the veto to the wrapper's size.
+      let wrapperArea = 0;
+      try { const r = el.getBoundingClientRect(); wrapperArea = r.width * r.height; } catch (_) {}
+      const minLightArea = wrapperArea * LIGHT_CHILD_VETO_RATIO;
+      if (hasVisibleLightDescendant(el, 3, minLightArea)) return false;
+      // Don't tag a wrapper that fronts large RASTER media. That media is
       // counter-inverted by its own rule; wrapping it in another counter-invert
       // triple-inverts it into a colour-negative — e.g. an image carousel whose
       // dark placeholder background made the wrapper look "natively dark", which
       // then flipped every restaurant photo inside it (TripAdvisor cards). The
-      // wrapper's dark bg is hidden behind the image anyway.
-      if (hasLargeMediaDescendant(el)) return false;
+      // wrapper's dark bg is hidden behind the image anyway. Vector SVGs are
+      // EXCLUDED (filter:none → safe inside darknative); counting them flipped
+      // KYM's whole dark header to light. Media inside a kept-dark wrapper is
+      // additionally neutralised in CSS (styles.js) so it never triple-inverts.
+      if (hasLargeRasterMediaDescendant(el)) return false;
       el.setAttribute(NATIVE_DARK_ATTR, "1");
       return true;
     }
@@ -181,6 +203,14 @@
   // element's gradient is just a fallback painted *behind* the image — the
   // image is the real visible surface.
   const MEDIA_SELECTOR = "img,video,canvas,picture,object,embed,svg";
+  // Media that actually gets the *counter-invert* filter (so it would
+  // triple-invert into a colour-negative inside a darknative wrapper). This
+  // EXCLUDES plain vector SVGs: they're treated like text (filter:none — see
+  // styles.js) and render correctly inside a darknative wrapper, so they must
+  // NOT veto native-dark tagging. (KYM's header is 86% covered by a decorative
+  // vector SVG; counting it kept the whole dark header from being preserved, so
+  // it flipped to a light block.) Only an <svg> holding a raster <image> counts.
+  const RASTER_MEDIA_SELECTOR = "img,video,canvas,picture,object,embed,svg:has(image)";
   // Fraction of an element's area a single media descendant must cover for the
   // element to count as "image-fronted".
   const MEDIA_COVER_RATIO = 0.35;
@@ -225,6 +255,28 @@
     if (area <= 0) return false;
     let media;
     try { media = el.querySelectorAll(MEDIA_SELECTOR); } catch (_) { return false; }
+    let i = 0;
+    for (const m of media) {
+      if (i++ > 200) break; // safety cap
+      let r;
+      try { r = m.getBoundingClientRect(); } catch (_) { continue; }
+      if (r.width * r.height >= area * MEDIA_COVER_RATIO) return true;
+    }
+    return false;
+  }
+
+  // Like hasLargeMediaDescendant but only counts RASTER media (the kind that
+  // gets the counter-invert and would therefore triple-invert inside a
+  // darknative wrapper). Vector SVGs are excluded — see RASTER_MEDIA_SELECTOR.
+  // Used by tagNativeDarkBg so a decorative vector SVG can't stop a genuinely
+  // dark wrapper from being kept dark.
+  function hasLargeRasterMediaDescendant(el) {
+    let rect;
+    try { rect = el.getBoundingClientRect(); } catch (_) { return false; }
+    const area = rect.width * rect.height;
+    if (area <= 0) return false;
+    let media;
+    try { media = el.querySelectorAll(RASTER_MEDIA_SELECTOR); } catch (_) { return false; }
     let i = 0;
     for (const m of media) {
       if (i++ > 200) break; // safety cap
@@ -503,10 +555,11 @@
     return m ? m[2] : null;
   }
 
-  // Mean luminance of an image's opaque pixels (0=black..1=white), or null when
-  // it can't be read (cross-origin taint, load error). Drawn to a canvas; same-
-  // origin theme assets (the common case) read fine.
-  function sampleImageLum(url) {
+  // Sample an image's opaque pixels → { lum, mono }: mean luminance (0..1) and
+  // whether it's (near-)monochrome/grayscale (a logo/glyph, not a colour photo).
+  // null when it can't be read (cross-origin taint / load error). Drawn to a
+  // canvas; same-origin assets (the common case) read fine.
+  function sampleImage(url) {
     return new Promise(resolve => {
       let done = false;
       const finish = v => { if (!done) { done = true; resolve(v); } };
@@ -519,14 +572,20 @@
           const ctx = c.getContext("2d");
           ctx.drawImage(img, 0, 0, w, h);
           const d = ctx.getImageData(0, 0, w, h).data;
-          let s = 0, n = 0;
-          for (let i = 0; i < d.length; i += 4) {
-            if (d[i + 3] > 20) {
-              s += (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) / 255;
-              n++;
-            }
+          // Stride so huge images don't cost a full per-pixel scan.
+          const step = Math.max(1, Math.floor(Math.sqrt((w * h) / 4000))) * 4;
+          let sr = 0, sg = 0, sb = 0, n = 0, gray = 0;
+          for (let i = 0; i < d.length; i += step) {
+            if (d[i + 3] <= 20) continue;
+            const r = d[i], g = d[i + 1], b = d[i + 2];
+            sr += r; sg += g; sb += b;
+            const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+            if (mx === 0 || (mx - mn) / mx < 0.18) gray++;
+            n++;
           }
-          finish(n ? s / n : null);
+          // WCAG luminance of the average opaque colour — same scale as the
+          // container luminance we compare against in shouldInvertIcon.
+          finish(n ? { lum: luminance({ r: sr / n, g: sg / n, b: sb / n }), mono: gray / n > 0.85 } : null);
         } catch (_) { finish(null); } // tainted (cross-origin) → unknown
       };
       img.onerror = () => finish(null);
@@ -535,33 +594,66 @@
     });
   }
 
-  const iconLumCache = new Map();   // url -> number|null
-  const iconLumPending = new Map(); // url -> Promise<number|null>
-  function getIconLum(url) {
-    if (iconLumCache.has(url)) return Promise.resolve(iconLumCache.get(url));
-    if (iconLumPending.has(url)) return iconLumPending.get(url);
-    const p = sampleImageLum(url).then(l => {
-      iconLumCache.set(url, l); iconLumPending.delete(url); return l;
+  const iconStatsCache = new Map();   // url -> {lum,mono}|null
+  const iconStatsPending = new Map(); // url -> Promise
+  function getIconStats(url) {
+    if (iconStatsCache.has(url)) return Promise.resolve(iconStatsCache.get(url));
+    if (iconStatsPending.has(url)) return iconStatsPending.get(url);
+    const p = sampleImage(url).then(v => {
+      iconStatsCache.set(url, v); iconStatsPending.delete(url); return v;
     });
-    iconLumPending.set(url, p);
+    iconStatsPending.set(url, p);
     return p;
   }
 
-  // Icons darker than this (raw luminance) render dark-on-dark under the blanket
-  // counter-invert and must instead invert with the theme. pmahomme icons (~0.6)
-  // stay above it (kept light); bootstrap-style dark icons fall below.
-  const ICON_DARK_MAX = 0.5;
-  function applyIconDecision(el, lum) {
+  function contrastRatio(a, b) {
+    return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+  }
+  // Below this rendered contrast a monochrome icon/logo is unreadable on its bg.
+  const ICON_MIN_CONTRAST = 3.0;
+
+  // Should an icon/logo with raw luminance `lum` be inverted WITH the theme
+  // (filter:none) rather than keeping its colour (counter-invert)? Yes when, on
+  // its rendered container background, the kept colour is low-contrast AND
+  // inverting improves it. Container-aware so it works whether the icon sits on
+  // the page (phpMyAdmin: dark icon on dark page → invert) or on an element that
+  // flipped to light (omori: white logo on a black button now white → invert).
+  function shouldInvertIcon(lum, containerLum) {
+    if (lum == null || containerLum == null) return false;
+    const keep = contrastRatio(lum, containerLum);
+    const inv = contrastRatio(1 - lum, containerLum);
+    return keep < ICON_MIN_CONTRAST && inv > keep;
+  }
+
+  function tagIcon(el, on) {
     if (!el.isConnected || el.hasAttribute(BG_IMAGE_ATTR)) return;
-    if (lum != null && lum < ICON_DARK_MAX) el.setAttribute(BG_ICON_ATTR, "1");
+    if (on) el.setAttribute(BG_ICON_ATTR, "1");
     else if (el.hasAttribute(BG_ICON_ATTR)) el.removeAttribute(BG_ICON_ATTR);
   }
 
+  // Background-fronted icon (placeholder-src <img> + CSS background-image, the
+  // phpMyAdmin pattern). Decide by contrast against the rendered container.
   function classifyBgIcon(el, bg) {
     const url = firstUrl(bg);
     if (!url) return;
-    if (iconLumCache.has(url)) applyIconDecision(el, iconLumCache.get(url));
-    else getIconLum(url).then(l => applyIconDecision(el, l));
+    const decide = s => tagIcon(el, !!(s && shouldInvertIcon(s.lum, effectiveDisplayedBg(el))));
+    if (iconStatsCache.has(url)) decide(iconStatsCache.get(url));
+    else getIconStats(url).then(decide);
+  }
+
+  // A real <img> logo (e.g. a white store badge on a dark button). When it's a
+  // monochrome logo (not a colour photo) and its kept colour would be invisible
+  // on the rendered container, invert it with the theme so it stays visible.
+  // Size-gated to logos/badges to skip (and not sample) large photos.
+  function classifyLogoImg(el) {
+    let r;
+    try { r = el.getBoundingClientRect(); } catch (_) { return; }
+    if (r.width === 0 || Math.max(r.width, r.height) > 512) { tagIcon(el, false); return; }
+    const url = el.currentSrc || el.getAttribute("src");
+    if (!url) return;
+    const decide = s => tagIcon(el, !!(s && s.mono && shouldInvertIcon(s.lum, effectiveDisplayedBg(el))));
+    if (iconStatsCache.has(url)) decide(iconStatsCache.get(url));
+    else getIconStats(url).then(decide);
   }
 
   function processElement(el) {
@@ -591,11 +683,20 @@
         if (el.hasAttribute(BG_IMAGE_ATTR)) el.removeAttribute(BG_IMAGE_ATTR);
         classifyBgIcon(el, bg);
       } else {
-        if (el.hasAttribute(BG_ICON_ATTR)) el.removeAttribute(BG_ICON_ATTR);
         if (hasBgImage && (forceImages || shouldReinvertBgImage(el, cs, bg))) {
           el.setAttribute(BG_IMAGE_ATTR, "1");
         } else if (el.hasAttribute(BG_IMAGE_ATTR)) {
           el.removeAttribute(BG_IMAGE_ATTR);
+        }
+        // A real <img> logo (its own content, no CSS bg-image): a monochrome
+        // logo whose kept colour would be invisible on its flipped container
+        // (e.g. a white store badge on a now-white button — omori-game.com) is
+        // inverted with the theme instead. Photos are left alone (not mono).
+        if (el.tagName === "IMG" && !hasBgImage && !forceImages &&
+            !el.hasAttribute(BG_IMAGE_ATTR)) {
+          classifyLogoImg(el);
+        } else if (el.hasAttribute(BG_ICON_ATTR)) {
+          el.removeAttribute(BG_ICON_ATTR);
         }
       }
       if (tagNativeDarkBg(el, cs)) return;
