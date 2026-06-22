@@ -65,6 +65,22 @@
       const bc = parseColor(getComputedStyle(body).backgroundColor);
       if (bc && bc.a > 0.5) return bc;
     }
+    // No explicit background: the canvas is the UA default, whose colour is the
+    // OPPOSITE of the UA default *text* colour. Usually that's white (dark text
+    // on white). But when the UA itself renders the document dark — OS dark mode
+    // + a plain-text/data viewer (Chrome's text/plain page), or color-scheme:dark
+    // — the default text turns light and the canvas is dark. Reading the default
+    // text colour detects this without assuming any specific UA: light default
+    // text ⇒ dark canvas. Fixes Chrome's text/plain viewer in dark mode being
+    // inverted to unreadable black-on-black; normal light pages (dark default
+    // text) still resolve to white.
+    const textEl = body || html;
+    if (textEl) {
+      const tc = parseColor(getComputedStyle(textEl).color);
+      if (tc && tc.a > 0.5 && luminance(tc) > 0.5) {
+        return { r: 18, g: 18, b: 18, a: 1 };
+      }
+    }
     return { r: 255, g: 255, b: 255, a: 1 };
   }
 

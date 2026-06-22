@@ -91,45 +91,110 @@
     } catch (_) { /* cross-origin */ }
   }
 
-  // ── Mutation observer for dynamic DOM ────────────────────────────────────
+  // ── Mutation observer for dynamic DOM (coalesced + rate-limited) ──────────
+  // Heavy SPAs flood the page with mutations — DuckDuckGo streams results in and
+  // toggles classes constantly, and infinite scroll keeps appending. Running
+  // markBackgroundImageElements (a full subtree scan) and processElement
+  // synchronously inside the observer callback per mutation janked page load
+  // badly. Instead we COALESCE affected nodes into pending sets and FLUSH on a
+  // debounced timer with a hard max-wait, doing the work in small time-budgeted
+  // slices that yield to the browser between them — but always draining the
+  // whole backlog (trailing edge), so the theme still fully applies in the end.
+  //
+  // (DA writes only data-darkabsolut-* attributes + injected CSS, never class/
+  // style or DOM nodes, so processing can't re-trigger this observer — no loop.)
+  const MUT_DEBOUNCE_MS = 120;   // flush this long after mutations go quiet
+  const MUT_MAX_WAIT_MS = 600;   // …but at least this often under constant load
+  const MUT_SLICE_MS = 12;       // work at most this long per slice, then yield
+  const pendingNodes = new Set(); // added subtree roots → mark/tag
+  const pendingAttrs = new Set(); // class/style targets → re-process/tag
+  let mutDebounceTimer = null, mutMaxWaitTimer = null, draining = false;
+
+  const nowMs = () =>
+    (window.performance && performance.now) ? performance.now() : Date.now();
+
+  function scheduleFlush() {
+    if (mutDebounceTimer) clearTimeout(mutDebounceTimer);
+    mutDebounceTimer = setTimeout(flushMutations, MUT_DEBOUNCE_MS);
+    // Guarantee a flush even while mutations never stop (the debounce keeps
+    // resetting) — the max-wait timer is armed once and not reset.
+    if (mutMaxWaitTimer == null) mutMaxWaitTimer = setTimeout(flushMutations, MUT_MAX_WAIT_MS);
+  }
+
+  function clearFlushTimers() {
+    if (mutDebounceTimer) { clearTimeout(mutDebounceTimer); mutDebounceTimer = null; }
+    if (mutMaxWaitTimer) { clearTimeout(mutMaxWaitTimer); mutMaxWaitTimer = null; }
+  }
+
+  // Yield, then continue draining. requestIdleCallback runs us in the browser's
+  // spare time (with a timeout so we never starve); setTimeout is the fallback.
+  function yieldThenDrain() {
+    draining = true;
+    if (window.requestIdleCallback) requestIdleCallback(drainSlice, { timeout: 250 });
+    else setTimeout(drainSlice, 16);
+  }
+
+  function flushMutations() {
+    clearFlushTimers();
+    if (draining) return; // a slice loop is already working through the backlog
+    drainSlice();
+  }
+
+  function drainSlice() {
+    draining = false;
+    const applied = state.applied, lastReq = state.lastEnabledRequest;
+    if (!applied && !lastReq) { pendingNodes.clear(); pendingAttrs.clear(); return; }
+    const start = nowMs();
+    let islandsDirty = false;
+
+    // Added-node subtrees first (deleting as we go is safe during Set iteration).
+    for (const n of pendingNodes) {
+      pendingNodes.delete(n);
+      if (n.nodeType === 1 && n.isConnected !== false) {
+        if (applied) {
+          try { markBackgroundImageElements(n); } catch (_) {}
+        } else {
+          // Root inversion off (page detected dark): tag injected light subtrees
+          // (compose dialogs, message iframes, modals) so the local-invert rule
+          // darkens them; hook iframes (contentDocument unreadable before load).
+          try { tagLightIslands(n); } catch (_) {}
+          islandsDirty = true;
+          if (n.tagName === "IFRAME") hookIframe(n);
+          else if (n.querySelectorAll) { for (const f of n.querySelectorAll("iframe")) hookIframe(f); }
+        }
+      }
+      if (nowMs() - start > MUT_SLICE_MS) break;
+    }
+
+    // Then class/style targets (a change can flip an element's resolved bg).
+    if (nowMs() - start <= MUT_SLICE_MS) {
+      for (const t of pendingAttrs) {
+        pendingAttrs.delete(t);
+        if (t.nodeType === 1 && t.isConnected !== false) {
+          if (applied) { try { processElement(t); } catch (_) {} }
+          else { try { tagLightIslands(t); } catch (_) {} islandsDirty = true; }
+        }
+        if (nowMs() - start > MUT_SLICE_MS) break;
+      }
+    }
+
+    if (islandsDirty) scheduleLightIslandRescan();
+    // Backlog left (slice ran out of budget, or new mutations arrived) → keep
+    // going after a yield so the job always finishes.
+    if (pendingNodes.size || pendingAttrs.size) yieldThenDrain();
+  }
+
   function startObserver() {
     if (state.observer) return;
     state.observer = new MutationObserver(muts => {
-      let islandsDirty = false;
       for (const m of muts) {
         if (m.type === "childList") {
-          for (const n of m.addedNodes) {
-            if (n.nodeType !== 1) continue;
-            if (state.applied) {
-              markBackgroundImageElements(n);
-            } else if (state.lastEnabledRequest) {
-              // Root inversion is off (page detected dark). Look for
-              // large light subtrees that the site injected (compose
-              // dialogs, message iframes, modals) and tag them so the
-              // local-invert CSS rule can darken them.
-              tagLightIslands(n);
-              islandsDirty = true;
-              // Hook any iframes — their contentDocument isn't readable
-              // before load, so we can't classify them synchronously.
-              if (n.tagName === "IFRAME") hookIframe(n);
-              if (n.querySelectorAll) {
-                const frames = n.querySelectorAll("iframe");
-                for (const f of frames) hookIframe(f);
-              }
-            }
-          }
+          for (const n of m.addedNodes) if (n.nodeType === 1) pendingNodes.add(n);
         } else if (m.type === "attributes" && m.target && m.target.nodeType === 1) {
-          // class/style change can flip an element's resolved background
-          // (e.g. CSS variable swap, theme class). Re-process this element.
-          if (state.applied) {
-            processElement(m.target);
-          } else if (state.lastEnabledRequest) {
-            tagLightIslands(m.target);
-            islandsDirty = true;
-          }
+          pendingAttrs.add(m.target);
         }
       }
-      if (islandsDirty) scheduleLightIslandRescan();
+      if (pendingNodes.size || pendingAttrs.size) scheduleFlush();
     });
     state.observer.observe(document.documentElement, {
       childList: true,
@@ -141,6 +206,10 @@
 
   function stopObserver() {
     if (state.observer) { state.observer.disconnect(); state.observer = null; }
+    clearFlushTimers();
+    pendingNodes.clear();
+    pendingAttrs.clear();
+    draining = false;
   }
 
   // Broadcast our inversion state to every descendant frame so they can

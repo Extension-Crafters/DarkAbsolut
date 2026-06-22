@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "DarkAbsolut",
-  "version": "1.0.3",
+  "version": "1.0.5",
   "description": "Automatically applies a dark theme to websites that don't already have one. Smart detection avoids inverting already-dark sites.",
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": ["<all_urls>"],
