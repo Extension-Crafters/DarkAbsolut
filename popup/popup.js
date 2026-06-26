@@ -5,46 +5,37 @@ let currentTab = null;
 let currentHostname = "";
 let state = null;
 
-function findEntryIn(list, host) {
-  if (!list || !host) return null;
-  return list.find(e => e.domain.toLowerCase() === host) || null;
-}
+// Each feature has a global default + a per-host/per-subdomain valued-rule list.
+// The popup's three checkbox columns map to: global → this-host → subdomains.
+const FEATURES = [
+  { msg: "dark",     key: "disabledDomains",        global: "globalDarkMode",      g: "da-dark-global", host: "da-domain", sub: "da-sub" },
+  { msg: "img",      key: "noImageInversionDomains", global: "globalNaturalImages", g: "da-img-global",  host: "da-noimg",  sub: "da-noimg-sub" },
+  { msg: "contrast", key: "enhanceContrastDomains",  global: "globalSoftGray",      g: "da-hc-global",   host: "da-hc",     sub: "da-hc-sub" }
+];
 
-function isCoveredBySubdomainRuleIn(list, host) {
-  if (!list || !host) return false;
-  return list.some(e => {
+// Mirror of background matching.resolveFeature: exact host > longest subdomain
+// rule > global default. `on` is each rule's explicit value.
+function resolveFeature(rules, host, globalDefault) {
+  if (!host) return !!globalDefault;
+  const h = host.toLowerCase();
+  let exact = null, sub = null, subLen = -1;
+  for (const e of rules || []) {
     const d = (e.domain || "").toLowerCase();
-    return e.includeSubdomains && d && host !== d && host.endsWith("." + d);
-  });
+    if (!d) continue;
+    if (h === d) { exact = e; break; }
+    if (e.includeSubdomains && h.endsWith("." + d) && d.length > subLen) { sub = e; subLen = d.length; }
+  }
+  const m = exact || sub;
+  return m ? !!m.on : !!globalDefault;
 }
 
-function findEntry(host) {
-  return findEntryIn(state && state.disabledDomains, host);
-}
-
-function isCoveredBySubdomainRule(host) {
-  return isCoveredBySubdomainRuleIn(state && state.disabledDomains, host);
-}
-
-function findNoImgEntry(host) {
-  return findEntryIn(state && state.noImageInversionDomains, host);
-}
-
-function isCoveredByNoImgSubdomainRule(host) {
-  return isCoveredBySubdomainRuleIn(state && state.noImageInversionDomains, host);
-}
-
-function findHcEntry(host) {
-  return findEntryIn(state && state.enhanceContrastDomains, host);
-}
-
-function isCoveredByHcSubdomainRule(host) {
-  return isCoveredBySubdomainRuleIn(state && state.enhanceContrastDomains, host);
+function findRule(rules, host) {
+  return (rules || []).find(e => (e.domain || "").toLowerCase() === host) || null;
 }
 
 function setDisabled(el, disabled) {
+  if (!el) return;
   el.disabled = !!disabled;
-  el.closest(".da-row")?.classList.toggle("disabled", !!disabled);
 }
 
 async function refresh() {
@@ -52,76 +43,60 @@ async function refresh() {
   const url = currentTab && currentTab.url || "";
   currentHostname = hostFromUrl(url);
   const r = await send({ type: "GET_FULL_STATE" });
-  state = (r && r.state) || { globalEnabled: true, disabledDomains: [], noImageInversionDomains: [] };
-  if (!Array.isArray(state.noImageInversionDomains)) state.noImageInversionDomains = [];
+  state = (r && r.state) || {};
 
   $("da-host").textContent = currentHostname || "(no site)";
   $("da-global").checked = !!state.globalEnabled;
+  const modeSel = $("da-mode");
+  if (modeSel) modeSel.value = state.mode || "filter";
 
   const restricted = !currentHostname || /^(chrome|edge|about|moz-extension|chrome-extension|view-source):/i.test(url);
-  const entry = findEntry(currentHostname);
-  const coveredBySub = isCoveredBySubdomainRule(currentHostname);
-  const siteDisabled = !!entry || coveredBySub;
+  const masterOff = !state.globalEnabled;
 
-  // "Enable on this site" reflects the inverse of disabled.
-  $("da-domain").checked = !siteDisabled;
-  $("da-sub").checked = !!(entry && entry.includeSubdomains);
+  // Is dark mode effectively going to apply to THIS host? (governs whether the
+  // image / soft-gray per-site controls are meaningful).
+  const darkActive = state.mode === "toggle"
+    ? !!state.toggleOn
+    : resolveFeature(state.disabledDomains, currentHostname, state.globalDarkMode);
 
-  // Disable per-site controls when global is off, on restricted URLs,
-  // or when only a parent subdomain rule covers this host.
-  const siteCtrlsDisabled = !state.globalEnabled || restricted || coveredBySub;
-  setDisabled($("da-domain"), siteCtrlsDisabled);
-  // Subdomain box: shown (and interactive) only once this feature has its own
-  // rule for this exact host — otherwise hidden, so there's never a dead,
-  // permanently-greyed checkbox. (Dark mode's rule exists when it's disabled.)
-  $("da-sub").hidden = !entry;
-  setDisabled($("da-sub"), siteCtrlsDisabled);
+  let anySub = false;
+  for (const f of FEATURES) {
+    const rules = state[f.key] || [];
+    const globalOn = !!state[f.global];
+    const rule = findRule(rules, currentHostname);
+    const effective = resolveFeature(rules, currentHostname, globalOn);
+    if (rule) anySub = true;
 
-  // ── Don't-invert-images per-site option ────────────────────────────────
-  const noImgEntry = findNoImgEntry(currentHostname);
-  const coveredByNoImgSub = isCoveredByNoImgSubdomainRule(currentHostname);
-  const noImgActive = !!noImgEntry || coveredByNoImgSub;
+    $(f.g).checked = globalOn;
+    $(f.host).checked = effective;
+    $(f.sub).checked = rule ? !!rule.includeSubdomains : false;
+    $(f.sub).hidden = !rule;
 
-  $("da-noimg").checked = noImgActive;
-  $("da-noimg-sub").checked = !!(noImgEntry && noImgEntry.includeSubdomains);
+    // Image / soft-gray only matter when dark mode actually applies.
+    const gated = f.msg !== "dark" && !darkActive;
+    setDisabled($(f.g), masterOff || gated);
+    setDisabled($(f.host), masterOff || restricted || gated);
+    setDisabled($(f.sub), masterOff || restricted || gated);
+  }
 
-  // The image option only makes sense while the extension is actually
-  // active for this site (global on, not restricted, site not disabled).
-  const noImgCtrlsDisabled = !state.globalEnabled || restricted || siteDisabled || coveredByNoImgSub;
-  setDisabled($("da-noimg"), noImgCtrlsDisabled);
-  $("da-noimg-sub").hidden = !noImgEntry;
-  setDisabled($("da-noimg-sub"), noImgCtrlsDisabled);
-
-  // ── Soft-dark-gray per-site option ─────────────────────────────────────
-  const hcEntry = findHcEntry(currentHostname);
-  const coveredByHcSub = isCoveredByHcSubdomainRule(currentHostname);
-  const hcActive = !!hcEntry || coveredByHcSub;
-
-  $("da-hc").checked = hcActive;
-  $("da-hc-sub").checked = !!(hcEntry && hcEntry.includeSubdomains);
-
-  const hcCtrlsDisabled = !state.globalEnabled || restricted || siteDisabled || coveredByHcSub;
-  setDisabled($("da-hc"), hcCtrlsDisabled);
-  $("da-hc-sub").hidden = !hcEntry;
-  setDisabled($("da-hc-sub"), hcCtrlsDisabled);
-
-  // Collapse the whole "subdomains" column when no feature has a per-site rule
-  // here — there's nothing to scope to subdomains, so don't show an empty,
-  // non-interactive column. It reappears the moment any feature gets a rule.
-  const anySub = !!entry || !!noImgEntry || !!hcEntry;
+  // Collapse the subdomains column when no feature has a per-site rule here.
   document.querySelector(".da-ptable")?.classList.toggle("da-no-subs", !anySub);
 
-  // Status line under the table (descriptions live in the column/feature
-  // tooltips and the "?" hints, so this only surfaces why controls are off).
   const hint = $("da-hint");
   if (hint) {
     hint.textContent =
-      !state.globalEnabled ? "Master switch is off."
-        : restricted ? "Not available on this browser page."
-          : !currentHostname ? "No site in this tab."
-            : siteDisabled ? `Dark mode is off on ${currentHostname}.`
-              : "";
+      masterOff ? "Master switch is off."
+        : state.mode === "once" ? "Click mode: the toolbar button dark-modes the current page. Settings via right-click → Options."
+          : state.mode === "toggle" ? "Toggle mode: the toolbar button turns dark mode on/off. Settings via right-click → Options."
+            : restricted ? "Not available on this browser page."
+              : !currentHostname ? "No site in this tab."
+                : "";
   }
+}
+
+async function onModeChange(e) {
+  await send({ type: "SET_MODE", mode: e.target.value });
+  await refresh();
 }
 
 async function onGlobalChange(e) {
@@ -129,79 +104,47 @@ async function onGlobalChange(e) {
   await refresh();
 }
 
-async function onHcChange(e) {
-  if (!currentHostname) return;
-  const includeSubdomains = $("da-hc-sub").checked;
-  await send({
-    type: "SET_DOMAIN_ENHANCE_CONTRAST",
-    hostname: currentHostname,
-    enabled: e.target.checked,
-    includeSubdomains
-  });
+function featureByGlobalId(id) { return FEATURES.find(f => f.g === id); }
+function featureByHostId(id) { return FEATURES.find(f => f.host === id); }
+function featureBySubId(id) { return FEATURES.find(f => f.sub === id); }
+
+async function onFeatureGlobalChange(e) {
+  const f = featureByGlobalId(e.target.id);
+  if (!f) return;
+  await send({ type: "SET_GLOBAL_FEATURE", feature: f.msg, value: e.target.checked });
   await refresh();
 }
 
-async function onHcSubChange(e) {
-  if (!currentHostname) return;
-  const entry = findHcEntry(currentHostname);
-  if (!entry) return; // only meaningful when soft-dark-gray is on for this host
-  await send({
-    type: "SET_DOMAIN_ENHANCE_CONTRAST",
-    hostname: currentHostname,
-    enabled: true,
-    includeSubdomains: e.target.checked
-  });
+async function onFeatureHostChange(e) {
+  const f = featureByHostId(e.target.id);
+  if (!f || !currentHostname) return;
+  const value = e.target.checked;
+  const rules = state[f.key] || [];
+  const sub = $(f.sub).checked;
+  const exact = findRule(rules, currentHostname);
+  // What this host would resolve to with NO exact rule — a parent
+  // include-subdomains rule, or the global default. We only drop the exact rule
+  // when it adds nothing (matches that baseline AND we're not scoping to
+  // subdomains). Comparing against the global alone would wrongly try to REMOVE
+  // a non-existent rule when the host inherits from a parent subdomain rule,
+  // leaving the checkbox unable to override it.
+  const inherited = resolveFeature(
+    rules.filter(r => (r.domain || "").toLowerCase() !== currentHostname),
+    currentHostname, !!state[f.global]);
+  if (value === inherited && !sub) {
+    if (exact) await send({ type: "REMOVE_FEATURE_RULE", feature: f.msg, hostname: currentHostname });
+  } else {
+    await send({ type: "SET_FEATURE_RULE", feature: f.msg, hostname: currentHostname, includeSubdomains: sub, on: value });
+  }
   await refresh();
 }
 
-async function onDomainChange(e) {
-  if (!currentHostname) return;
-  const enabledOnSite = e.target.checked;
-  const includeSubdomains = $("da-sub").checked;
-  await send({
-    type: "SET_DOMAIN_DISABLED",
-    hostname: currentHostname,
-    disabled: !enabledOnSite,
-    includeSubdomains
-  });
-  await refresh();
-}
-
-async function onSubChange(e) {
-  if (!currentHostname) return;
-  const entry = findEntry(currentHostname);
-  if (!entry) return; // only meaningful when site is disabled
-  await send({
-    type: "SET_DOMAIN_DISABLED",
-    hostname: currentHostname,
-    disabled: true,
-    includeSubdomains: e.target.checked
-  });
-  await refresh();
-}
-
-async function onNoImgChange(e) {
-  if (!currentHostname) return;
-  const includeSubdomains = $("da-noimg-sub").checked;
-  await send({
-    type: "SET_DOMAIN_IMAGE_INVERSION_DISABLED",
-    hostname: currentHostname,
-    disabled: e.target.checked,
-    includeSubdomains
-  });
-  await refresh();
-}
-
-async function onNoImgSubChange(e) {
-  if (!currentHostname) return;
-  const entry = findNoImgEntry(currentHostname);
-  if (!entry) return; // only meaningful when image-skip is on for this host
-  await send({
-    type: "SET_DOMAIN_IMAGE_INVERSION_DISABLED",
-    hostname: currentHostname,
-    disabled: true,
-    includeSubdomains: e.target.checked
-  });
+async function onFeatureSubChange(e) {
+  const f = featureBySubId(e.target.id);
+  if (!f || !currentHostname) return;
+  const rule = findRule(state[f.key], currentHostname);
+  if (!rule) return; // only meaningful once a host rule exists
+  await send({ type: "SET_FEATURE_RULE", feature: f.msg, hostname: currentHostname, includeSubdomains: e.target.checked, on: !!rule.on });
   await refresh();
 }
 
@@ -241,10 +184,13 @@ function onOpenIoPage() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  $("da-mode").addEventListener("change", onModeChange);
   $("da-global").addEventListener("change", onGlobalChange);
-  $("da-domain").addEventListener("change", onDomainChange);
-  $("da-hc").addEventListener("change", onHcChange);
-  $("da-hc-sub").addEventListener("change", onHcSubChange);
+  for (const f of FEATURES) {
+    $(f.g).addEventListener("change", onFeatureGlobalChange);
+    $(f.host).addEventListener("change", onFeatureHostChange);
+    $(f.sub).addEventListener("change", onFeatureSubChange);
+  }
   // "?" affordance (shown on touch devices): tap to surface a column/feature
   // explanation in the hint line — the same text desktop shows on hover.
   document.querySelectorAll(".da-q").forEach(b =>
@@ -252,9 +198,6 @@ document.addEventListener("DOMContentLoaded", () => {
       const hint = $("da-hint");
       if (hint) hint.textContent = b.getAttribute("data-hint") || "";
     }));
-  $("da-sub").addEventListener("change", onSubChange);
-  $("da-noimg").addEventListener("change", onNoImgChange);
-  $("da-noimg-sub").addEventListener("change", onNoImgSubChange);
   $("da-reload").addEventListener("click", onReload);
   document.querySelectorAll(".da-tab").forEach(b => {
     b.addEventListener("click", () => activateTab(b.dataset.tab));

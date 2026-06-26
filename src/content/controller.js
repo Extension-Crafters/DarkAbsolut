@@ -15,7 +15,8 @@
   const {
     pageDeclaresDarkScheme,
     effectiveBgColor,
-    pageBaseIsDark,
+    canvasBgColor,
+    fullPageBgColor,
     allStylesheetsLoaded
   } = DA.detect;
   const { isNeutralDark } = DA.colors;
@@ -45,7 +46,11 @@
     // embeds a light sign-in form iframe).
     ancestorInvertedHint: null,
     // Per-site soft-dark-gray contrast (mirrored from settings each evaluate).
-    enhanceContrast: false
+    enhanceContrast: false,
+    // "Once" mode: the user clicked the toolbar button to dark-mode THIS page
+    // load even though auto-apply says off. Sticky for the page so a later
+    // STATE_UPDATED broadcast can't quietly revert it; resets on navigation.
+    forcedOnce: false
   };
   const state = DA.state;
 
@@ -346,14 +351,26 @@
     }
 
     if (verdict === true) {
-      // effectiveBgColor() samples the *current viewport*, so scrolling a dark
-      // footer/hero into view produces a dark verdict on an otherwise-light
-      // page. Once we've already inverted, only undo it for a scroll-
-      // independent signal — a declared dark scheme or a genuinely dark
-      // base/canvas (a real theme change) — never just because a dark section
-      // scrolled into view. (At load, scroll=0, so first-time detection below
-      // is unaffected.)
-      if (state.applied && !pageDeclaresDarkScheme() && !pageBaseIsDark()) {
+      // effectiveBgColor() samples the current viewport, which can read dark for
+      // reasons that AREN'T a page-wide dark theme: a dark footer/hero scrolled
+      // into view (mesepices), or dark media filling the view — a map <canvas>,
+      // video or hero (Google Maps: a light app whose map canvas is black).
+      // So once we've already inverted, only UN-invert for a page-wide signal:
+      // a declared dark color-scheme, or the body/html BASE background itself
+      // being dark (a real theme switch). The viewport / <main> / media don't
+      // count. (First-time detection — !state.applied — still honours the full
+      // verdict so genuinely-dark sites are never inverted in the first place.)
+      let baseDark = pageDeclaresDarkScheme();
+      if (!baseDark) {
+        try { const c = canvasBgColor(); baseDark = !!c && isNeutralDark(c); } catch (_) {}
+      }
+      // App shells (Next.js, etc.) paint the dark theme on a full-document
+      // wrapper, not <html>/<body>, so canvasBgColor misses it. A wrapper that
+      // covers the WHOLE document (not a band) is a real page-wide dark signal.
+      if (!baseDark) {
+        try { const c = fullPageBgColor(); baseDark = !!c && isNeutralDark(c); } catch (_) {}
+      }
+      if (state.applied && !baseDark) {
         ensureAttributeAndStyle();
       } else {
         state.stableDarkConfirmed = true;
@@ -373,6 +390,49 @@
     }
   }
 
+  // ── Throttled re-check after user interaction ───────────────────────────
+  // SPA apps (Gmail, Outlook, etc.) swap the main view on click WITHOUT
+  // touching <html>/<body> classes, so the theme watchers never fire and the
+  // timed post-load re-checks have long since expired. A freshly-rendered view
+  // (an opened message, a switched folder) can therefore be left un-themed —
+  // most visibly a message body that renders in its own iframe and ends up
+  // un-inverted (light) on the otherwise-dark page until something else nudges
+  // it. A click-triggered re-evaluation re-runs detection, re-tags injected
+  // light subtrees, and re-broadcasts our inversion state to descendant frames
+  // so a double-inverted body iframe re-syncs.
+  //
+  // It is throttled the same way the mutation flush is: a debounce that waits
+  // for the click's async render to settle, plus a hard max-wait so a stream of
+  // rapid clicks still gets serviced regularly — never one heavy pass per click.
+  const INTERACT_SETTLE_MS = 250;    // run this long after the last click
+  const INTERACT_MAX_WAIT_MS = 1000; // …but at least this often under rapid clicks
+  let interactTimer = null, interactMaxTimer = null;
+
+  function runInteractionRecheck() {
+    // Null BOTH timers after clearing: the next click batch re-arms the max-wait
+    // via the `interactMaxTimer == null` check in scheduleInteractionRecheck, so
+    // dropping this reset would wedge the max-wait off after the first run.
+    if (interactTimer) { clearTimeout(interactTimer); interactTimer = null; }
+    if (interactMaxTimer) { clearTimeout(interactMaxTimer); interactMaxTimer = null; }
+    if (!state.lastEnabledRequest) return;
+    reevaluate();
+    // Re-sync whichever mode we ended up in: inverted pages re-announce to
+    // descendant frames (fixes a body iframe left double-inverted/light); dark
+    // pages re-scan for newly-injected light subtrees (compose dialog, message
+    // pane). Cheap — the mutation observer already handles per-node bg tagging.
+    if (state.applied) broadcastInversionToSubframes(true);
+    else scheduleLightIslandRescan();
+  }
+
+  function scheduleInteractionRecheck() {
+    if (!state.lastEnabledRequest) return;
+    if (interactTimer) clearTimeout(interactTimer);
+    interactTimer = setTimeout(runInteractionRecheck, INTERACT_SETTLE_MS);
+    if (interactMaxTimer == null) {
+      interactMaxTimer = setTimeout(runInteractionRecheck, INTERACT_MAX_WAIT_MS);
+    }
+  }
+
   // ── Theme watchers (stylesheet loads, class flips, prefers-color-scheme) ─
   function startThemeWatchers() {
     if (state.watchersStarted) return;
@@ -383,6 +443,12 @@
       const t = e.target;
       if (t && (t.tagName === "LINK" || t.tagName === "STYLE")) reevaluate();
     }, true);
+
+    // Re-check shortly after a click — catches SPA view swaps (open a Gmail
+    // message, switch folder) that re-render the main panel without a theme
+    // change. Capture phase + passive so the app can't suppress it and we never
+    // delay the click. Throttled inside scheduleInteractionRecheck.
+    document.addEventListener("click", scheduleInteractionRecheck, { capture: true, passive: true });
 
     // Watch class/style mutations on <html> and <body> (theme toggles).
     // Also include our own ATTR so we self-heal if a framework removes it.
@@ -513,12 +579,20 @@
       });
     } catch (_) { return; }
     if (!resp || !resp.ok) return;
-    state.lastEnabledRequest = !!resp.enabled;
+    // A one-time button click only forces the page on while we're still in
+    // "once" mode; leaving that mode clears the forced state.
+    if (resp.mode !== "once") state.forcedOnce = false;
+    // "Once" mode: a one-time button click forces this page on even though
+    // auto-apply (resp.enabled) is false — but never past the master kill switch
+    // (resp.state.globalEnabled), so "off" still means nothing is applied.
+    const masterOn = !(resp.state && resp.state.globalEnabled === false);
+    const effectiveEnabled = !!resp.enabled || (resp.mode === "once" && state.forcedOnce && masterOn);
+    state.lastEnabledRequest = effectiveEnabled;
     const prevImageInversionDisabled = !!state.imageInversionDisabled;
     state.imageInversionDisabled = !!resp.imageInversionDisabled;
     setImageInversionDisabled(state.imageInversionDisabled && state.lastEnabledRequest);
     state.enhanceContrast = !!resp.enhanceContrast;
-    if (!resp.enabled) { disableForPage(); return; }
+    if (!effectiveEnabled) { disableForPage(); return; }
     setEnhanceContrast(state.enhanceContrast);
     // If the per-site "Force natural images" flag changed while inversion
     // is already applied, re-run element tagging so the bg-image heuristic
@@ -595,6 +669,13 @@
 
   chrome.runtime.onMessage.addListener(msg => {
     if (msg && msg.type === "STATE_UPDATED") {
+      state.recheckTimers.forEach(clearTimeout);
+      state.recheckTimers = [];
+      state.stableDarkConfirmed = false;
+      evaluateAndApply();
+    } else if (msg && msg.type === "APPLY_ONCE") {
+      // "Once" mode toolbar click: dark-mode this page for this page load only.
+      state.forcedOnce = true;
       state.recheckTimers.forEach(clearTimeout);
       state.recheckTimers = [];
       state.stableDarkConfirmed = false;

@@ -85,14 +85,19 @@
     if (!c) return false;
     const lum = luminance(c);
     if (lum >= DARK_LUM_MAX) return false;
-    const sat = saturation(c);
-    const maxSat = lum < 0.04 ? 0.80 : lum < 0.10 ? 0.45 : 0.25;
-    return sat < maxSat;
+    return saturation(c) < nativeDarkMaxSat(lum);
   }
 
   // Shared adaptive saturation ceiling used by both isNeutralDark and the
   // element-level tagNativeDarkBg.
   function nativeDarkMaxSat(lum) {
+    // Perceptually near-black: at this luminance the colour reads as black and
+    // HSL saturation is meaningless (a few units in one channel blow it up to
+    // ~1.0), so allow ANY saturation. Without this, a very-dark but saturated
+    // theme background is mistaken for an invertible accent colour and the whole
+    // page gets inverted to light — k4g.com's bg rgb(0,3,38) (luminance ≈ 0.002,
+    // HSL saturation ≈ 1.0) was flipped bright this way.
+    if (lum < 0.015) return 1.01; // > 1 so even saturation 1.0 passes
     return lum < 0.04 ? 0.80 : lum < 0.10 ? 0.45 : 0.25;
   }
 

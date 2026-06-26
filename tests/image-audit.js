@@ -46,6 +46,7 @@ const SITES = process.argv[2]
       ['booking',     'https://www.booking.com/'],
       ['yelp',        'https://www.yelp.com/sf'],
       ['producthunt', 'https://www.producthunt.com/'],
+      ['gmaps',       'https://www.google.com/maps/@48.8584,2.2945,14z'],
     ];
 
 // In-page probe (stringified; runs in page context).

@@ -35,28 +35,36 @@ function assert(name, cond, detail) {
     await page.waitForTimeout(600);
 
     const r = await page.evaluate(() => {
-      const ids = ['da-global', 'da-domain', 'da-sub', 'da-noimg', 'da-noimg-sub', 'da-hc', 'da-hc-sub'];
+      const ids = ['da-global',
+        'da-dark-global', 'da-domain', 'da-sub',
+        'da-img-global', 'da-noimg', 'da-noimg-sub',
+        'da-hc-global', 'da-hc', 'da-hc-sub'];
+      const mode = document.getElementById('da-mode');
       return {
         checkboxes: ids.filter(id => !!document.getElementById(id)),
+        modeOptions: mode ? [...mode.options].map(o => o.value) : [],
         rows: document.querySelectorAll('.da-prow').length,
         cols: document.querySelectorAll('.da-phead .da-pcol').length,
         qs: document.querySelectorAll('.da-q').length,
         hasHint: !!document.getElementById('da-hint'),
         // no leftover removed elements referenced
         oldDesc: !!(document.getElementById('da-domain-desc') || document.getElementById('da-hc-desc')),
-        // with no per-site rules, the subdomains column collapses and its
-        // checkboxes are hidden — never a dead, non-interactive column.
+        // global checkboxes always shown; with no per-site rules the subdomains
+        // column collapses and its checkboxes are hidden — never a dead column.
+        globalsVisible: ['da-dark-global', 'da-img-global', 'da-hc-global'].every(id => !document.getElementById(id).hidden),
         noSubsCollapsed: document.querySelector('.da-ptable').classList.contains('da-no-subs'),
         subBoxesHidden: ['da-sub', 'da-noimg-sub', 'da-hc-sub'].every(id => document.getElementById(id).hidden),
       };
     });
 
     assert('popup loads with no JS errors', errors.length === 0, errors.join(' | '));
-    assert('all 7 switches/checkboxes present', r.checkboxes.length === 7, r.checkboxes.join(','));
+    assert('all 10 switches/checkboxes present', r.checkboxes.length === 10, r.checkboxes.join(','));
+    assert('working-mode select has 3 modes', r.modeOptions.join(',') === 'filter,once,toggle', r.modeOptions.join(','));
     assert('feature table has header + 3 feature rows', r.rows === 4, `rows=${r.rows}`);
-    assert('two checkbox column headers', r.cols === 2, `cols=${r.cols}`);
-    assert('"?" help affordances present', r.qs >= 5, `qs=${r.qs}`);
+    assert('three checkbox column headers (global/host/sub)', r.cols === 3, `cols=${r.cols}`);
+    assert('"?" help affordances present', r.qs >= 6, `qs=${r.qs}`);
     assert('hint line present, old desc rows gone', r.hasHint && !r.oldDesc, `hint=${r.hasHint} oldDesc=${r.oldDesc}`);
+    assert('global checkboxes always visible', r.globalsVisible, `globals=${r.globalsVisible}`);
     assert('subdomains column collapsed with no rules', r.noSubsCollapsed, `noSubs=${r.noSubsCollapsed}`);
     assert('subdomain checkboxes hidden with no rules', r.subBoxesHidden, `hidden=${r.subBoxesHidden}`);
 

@@ -10,6 +10,10 @@ node_modules/
 .DS_Store
 Thumbs.db
 
+# Local-only secrets (private profile path for live Gmail tests)
+.env
+.env.*
+
 # Test & diagnostic artefacts (screenshots, generated swatches)
 tests/screenshots/
 

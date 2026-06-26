@@ -56,6 +56,7 @@ const LIVE_SITES = [
   ['apple',        'https://www.apple.com/'],
   ['microsoft',    'https://www.microsoft.com/en-us/'],
   ['paypal',       'https://www.paypal.com/us/home'],
+  ['gmaps',        'https://www.google.com/maps/@48.8584,2.2945,14z'],
   // Broader top-sites coverage (light-themed / content sites where the
   // inversion is active; already-dark or login-walled top sites are covered
   // by the "stays dark / not inverted" behavior instead).

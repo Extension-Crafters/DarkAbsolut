@@ -100,7 +100,7 @@ html, body {
 .da-ptable { padding: 4px 14px 6px; }
 .da-prow {
   display: grid;
-  grid-template-columns: 1fr 42px 42px;
+  grid-template-columns: 1fr 38px 38px 38px;
   align-items: center;
   gap: 4px;
   padding: 8px 0;
@@ -124,10 +124,24 @@ html, body {
 .da-pcell input[hidden] { display: none; }
 
 /* When no feature has a per-site rule here, there's nothing to scope to
-   subdomains — drop the whole column instead of showing an empty, dead one. */
-.da-ptable.da-no-subs .da-prow { grid-template-columns: 1fr 42px; }
+   subdomains — drop that column (global + this-host columns remain). */
+.da-ptable.da-no-subs .da-prow { grid-template-columns: 1fr 38px 38px; }
 .da-ptable.da-no-subs .da-pcol:last-child,
 .da-ptable.da-no-subs .da-pcell:last-child { display: none; }
+
+/* Working-mode dropdown. */
+.da-select {
+  background: var(--bg-2);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  max-width: 150px;
+}
+.da-select:hover { border-color: var(--accent); }
 
 /* Help "?" — hidden on hover-capable (desktop) where the title tooltip works;
    shown on touch devices (Firefox Android popup) where hover isn't ergonomic. */

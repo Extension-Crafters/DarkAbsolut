@@ -15,9 +15,17 @@
   // Walk from `el` up the ancestor chain until we find the first element with
   // a non-transparent background-color — this matches what the user actually
   // sees at that point on screen (CSS painting cascade).
+  // Media elements draw their own content; their CSS background-color is a
+  // placeholder BEHIND that content (like a url() image), not the page's
+  // surface — so detection must look past it. Google Maps' map <canvas> has
+  // background:#000; counting it made the (otherwise light) Maps UI read as
+  // "already dark" and get un-inverted a few seconds after load.
+  const MEDIA_TAGS = { CANVAS: 1, IMG: 1, VIDEO: 1, PICTURE: 1, OBJECT: 1, EMBED: 1 };
+
   function firstOpaqueBgUp(el) {
     let cur = el;
     while (cur && cur.nodeType === 1) {
+      if (MEDIA_TAGS[cur.tagName]) { cur = cur.parentElement; continue; }
       const cs = getComputedStyle(cur);
       const c = parseColor(cs.backgroundColor);
       if (c && c.a > 0.5) {
@@ -82,6 +90,43 @@
       }
     }
     return { r: 255, g: 255, b: 255, a: 1 };
+  }
+
+  // The colour of an element that paints (nearly) the ENTIRE document — a
+  // wrapper that establishes the page background even though <html>/<body> are
+  // transparent. Modern app shells (Next.js #__next, React roots) commonly set
+  // the dark theme background on such a wrapper, not on <html>/<body>, so
+  // canvasBgColor() (which only reads html/body) misses it and the page reads as
+  // light to the base-bg check — which then keeps an optimistically-applied
+  // inversion on, flipping a genuinely-dark page bright. Requiring full-DOCUMENT
+  // coverage (not just the viewport) keeps a dark hero / navbar / footer — which
+  // each cover only a band — from qualifying. Returns the first full-page OPAQUE
+  // background walking down from <body>, else null.
+  // (k4g.com: body > #__next [transparent, full] > #k4g-root rgb(0,3,38) [opaque, full].)
+  function fullPageBgColor() {
+    const body = document.body;
+    if (!body) return null;
+    const W = window.innerWidth | 0;
+    const docH = Math.max(
+      document.documentElement.scrollHeight || 0,
+      body.scrollHeight || 0, window.innerHeight | 0);
+    if (W < 50 || docH < 50) return null;
+    const queue = [];
+    for (const ch of body.children) queue.push(ch);
+    let i = 0;
+    while (queue.length && i++ < 80) {
+      const el = queue.shift();
+      if (!el || el.nodeType !== 1) continue;
+      let r; try { r = el.getBoundingClientRect(); } catch (_) { continue; }
+      // Must span essentially the whole document — a band/hero/footer won't.
+      if (r.width < W * 0.95 || r.height < docH * 0.9) continue;
+      let cs; try { cs = getComputedStyle(el); } catch (_) { continue; }
+      if (cs.display === "none" || cs.visibility === "hidden") continue;
+      const c = parseColor(cs.backgroundColor);
+      if (c && c.a > 0.7) return c;          // first full-page opaque background
+      for (const ch of el.children) queue.push(ch); // transparent → look deeper
+    }
+    return null;
   }
 
   // Sample the rendered viewport at a grid of points and return the dominant
@@ -219,23 +264,6 @@
     return null;
   }
 
-  // Scroll-independent "is the page's theme dark?" signal: a dark base/canvas
-  // background, or an explicitly-dark primary content container. Unlike
-  // effectiveBgColor() this does NOT sample the current viewport, so it can't
-  // be fooled by a dark footer/hero scrolled into view. Re-evaluation uses it
-  // to avoid un-inverting an already-inverted light page on scroll.
-  function pageBaseIsDark() {
-    try {
-      const mainEl = document.querySelector('main, [role="main"]');
-      if (mainEl) {
-        const mc = parseColor(getComputedStyle(mainEl).backgroundColor);
-        if (mc && mc.a > 0.5 && isNeutralDark(mc)) return true;
-      }
-    } catch (_) {}
-    const c = canvasBgColor();
-    return !!c && isNeutralDark(c);
-  }
-
   function pageDeclaresDarkScheme() {
     const html = document.documentElement;
     if (!html) return false;
@@ -273,10 +301,10 @@
   DA.detect = {
     firstOpaqueBgUp,
     canvasBgColor,
+    fullPageBgColor,
     sampleViewportBgColors,
     sampleChromeBgColors,
     effectiveBgColor,
-    pageBaseIsDark,
     pageDeclaresDarkScheme,
     allStylesheetsLoaded,
     detectDarkState

@@ -96,6 +96,21 @@ html[${ATTR}="on"] [${DA.NATIVE_DARK_ATTR}="1"] img[${DA.BG_ICON_ATTR}="1"] {
    light-on-light (the OVH Manager flyout hover bug). */
 html[${ATTR}="on"] [${DA.RESCUE_COLOR_ATTR}="1"]:not(:hover) { color: #141414 !important; }
 html[${ATTR}="on"] [${DA.RESCUE_COLOR_ATTR}="2"]:not(:hover) { color: #ededed !important; }
+/* Form fields rescued for low contrast. Two differences from the generic rule
+   above: (1) cover the ::placeholder pseudo-element, which the bare color rule
+   can't reach when the site sets an explicit placeholder colour (Gmail's search
+   box); (2) do NOT defer on hover — unlike a menu item, a field's background
+   doesn't swap on hover, so deferring would flash the value/placeholder back to
+   unreadable while you point at the search box. These (no :not(:hover)) win on
+   hover, where the generic rule above is inactive. */
+html[${ATTR}="on"] input[${DA.RESCUE_COLOR_ATTR}="1"],
+html[${ATTR}="on"] textarea[${DA.RESCUE_COLOR_ATTR}="1"],
+html[${ATTR}="on"] input[${DA.RESCUE_COLOR_ATTR}="1"]::placeholder,
+html[${ATTR}="on"] textarea[${DA.RESCUE_COLOR_ATTR}="1"]::placeholder { color: #141414 !important; }
+html[${ATTR}="on"] input[${DA.RESCUE_COLOR_ATTR}="2"],
+html[${ATTR}="on"] textarea[${DA.RESCUE_COLOR_ATTR}="2"],
+html[${ATTR}="on"] input[${DA.RESCUE_COLOR_ATTR}="2"]::placeholder,
+html[${ATTR}="on"] textarea[${DA.RESCUE_COLOR_ATTR}="2"]::placeholder { color: #ededed !important; }
 /* ── Light islands on already-dark pages ─────────────────────────────────
    When the page is detected as already-dark we leave the root filter off
    so the site's dark theme is preserved. But dynamically-mounted light

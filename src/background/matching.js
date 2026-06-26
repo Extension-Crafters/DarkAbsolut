@@ -36,30 +36,50 @@ export function isRestrictedUrl(url) {
   return RESTRICTED_SCHEME_RE.test(url || "");
 }
 
-export function isHostDisabled(hostname, disabledDomains) {
-  if (!hostname) return false;
+// Resolve a feature's value for a host: an exact-host rule wins, else the most
+// specific (longest-domain) include-subdomains rule, else the global default.
+// Each rule's `on` is the explicit value. This is the per-host → per-subdomain →
+// global precedence the popup's three columns map onto.
+export function resolveFeature(hostname, rules, globalDefault) {
+  if (!hostname) return !!globalDefault;
   const h = hostname.toLowerCase();
-  for (const entry of disabledDomains) {
+  let exact = null, sub = null, subLen = -1;
+  for (const entry of rules || []) {
     const d = (entry.domain || "").toLowerCase();
     if (!d) continue;
-    if (entry.includeSubdomains) {
-      if (h === d || h.endsWith("." + d)) return true;
-    } else {
-      if (h === d) return true;
+    if (h === d) { exact = entry; break; }
+    if (entry.includeSubdomains && h.endsWith("." + d) && d.length > subLen) {
+      sub = entry; subLen = d.length;
     }
   }
-  return false;
+  const m = exact || sub;
+  return m ? !!m.on : !!globalDefault;
 }
 
 export async function shouldEnableForUrl(url) {
   const state = await getState();
-  const off = { enabled: false, imageInversionDisabled: false, enhanceContrast: false, state };
-  if (!state.globalEnabled) return off;
   const host = hostnameFromUrl(url);
-  if (!host) return off;
-  if (isRestrictedUrl(url)) return off;
-  if (isHostDisabled(host, state.disabledDomains)) return off;
-  const imageInversionDisabled = isHostDisabled(host, state.noImageInversionDomains || []);
-  const enhanceContrast = isHostDisabled(host, state.enhanceContrastDomains || []);
-  return { enabled: true, imageInversionDisabled, enhanceContrast, state };
+  const restricted = isRestrictedUrl(url);
+  const base = {
+    enabled: false, imageInversionDisabled: false, enhanceContrast: false,
+    mode: state.mode, state
+  };
+  if (!state.globalEnabled || !host || restricted) return base;
+
+  // Image / soft-gray resolve the same way in every mode — they only take
+  // effect once dark mode is actually applied to the page.
+  const imageInversionDisabled =
+    resolveFeature(host, state.noImageInversionDomains, state.globalNaturalImages);
+  const enhanceContrast =
+    resolveFeature(host, state.enhanceContrastDomains, state.globalSoftGray);
+
+  let enabled;
+  if (state.mode === "toggle") {
+    enabled = !!state.toggleOn;       // global on/off; per-site dark rules ignored
+  } else if (state.mode === "once") {
+    enabled = false;                  // never auto; only on explicit button click
+  } else {
+    enabled = resolveFeature(host, state.disabledDomains, state.globalDarkMode);
+  }
+  return { enabled, imageInversionDisabled, enhanceContrast, mode: state.mode, state };
 }

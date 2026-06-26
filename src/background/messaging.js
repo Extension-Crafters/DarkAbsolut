@@ -6,12 +6,29 @@ import {
   registrableLike
 } from "./matching.js";
 import { updateBadge } from "./badge.js";
+import { configureAction } from "./action.js";
 
-// Strip an incoming import payload into a canonical, trusted shape.
+// feature key → { list storage key, global-default storage key, legacy `on` }.
+const FEATURES = {
+  dark:     { key: "disabledDomains",         global: "globalDarkMode",     legacyOn: false },
+  img:      { key: "noImageInversionDomains",  global: "globalNaturalImages", legacyOn: true },
+  contrast: { key: "enhanceContrastDomains",   global: "globalSoftGray",      legacyOn: true }
+};
+
+// Write (or replace) a valued per-host rule for a feature.
+function setRule(list, host, includeSubdomains, on) {
+  const next = (list || []).filter(e => (e.domain || "").toLowerCase() !== host);
+  next.push({ domain: host, includeSubdomains: !!includeSubdomains, on: !!on });
+  return next;
+}
+
+// Strip an incoming import payload into a canonical, trusted shape (valued
+// rules + per-feature globals + mode). Legacy payloads (entries without `on`)
+// are normalised by storage.replaceState using each list's historic meaning.
 function sanitizeImportedData(data) {
   if (!data || typeof data !== "object") return null;
 
-  const sanitizeDomainList = (raw) => {
+  const sanitizeRuleList = (raw) => {
     const out = [];
     if (!Array.isArray(raw)) return out;
     const seen = new Set();
@@ -20,21 +37,28 @@ function sanitizeImportedData(data) {
       const domain = e.domain.trim().toLowerCase();
       if (!domain || seen.has(domain)) continue;
       seen.add(domain);
-      out.push({ domain, includeSubdomains: !!e.includeSubdomains });
+      const entry = { domain, includeSubdomains: !!e.includeSubdomains };
+      if (typeof e.on === "boolean") entry.on = e.on;
+      out.push(entry);
     }
     return out;
   };
+  const bool = (v, d) => (typeof v === "boolean" ? v : d);
   return {
-    globalEnabled: typeof data.globalEnabled === "boolean"
-      ? data.globalEnabled
-      : DEFAULTS.globalEnabled,
-    disabledDomains: sanitizeDomainList(data.disabledDomains),
-    noImageInversionDomains: sanitizeDomainList(data.noImageInversionDomains),
-    enhanceContrastDomains: sanitizeDomainList(data.enhanceContrastDomains)
+    globalEnabled: bool(data.globalEnabled, DEFAULTS.globalEnabled),
+    mode: ["filter", "once", "toggle"].includes(data.mode) ? data.mode : DEFAULTS.mode,
+    toggleOn: bool(data.toggleOn, DEFAULTS.toggleOn),
+    globalDarkMode: bool(data.globalDarkMode, DEFAULTS.globalDarkMode),
+    globalNaturalImages: bool(data.globalNaturalImages, DEFAULTS.globalNaturalImages),
+    globalSoftGray: bool(data.globalSoftGray, DEFAULTS.globalSoftGray),
+    disabledDomains: sanitizeRuleList(data.disabledDomains),
+    noImageInversionDomains: sanitizeRuleList(data.noImageInversionDomains),
+    enhanceContrastDomains: sanitizeRuleList(data.enhanceContrastDomains)
   };
 }
 
-async function broadcastUpdate() {
+async function broadcastUpdate(state) {
+  if (state) { try { await configureAction(state); } catch (_) {} }
   const tabs = await chrome.tabs.query({});
   for (const t of tabs) {
     if (t.id == null) continue;
@@ -55,6 +79,7 @@ async function handle(msg, sender) {
         enabled: res.enabled,
         imageInversionDisabled: !!res.imageInversionDisabled,
         enhanceContrast: !!res.enhanceContrast,
+        mode: res.mode,
         state: res.state
       };
     }
@@ -64,48 +89,85 @@ async function handle(msg, sender) {
     }
     case "SET_GLOBAL_ENABLED": {
       const next = await setState({ globalEnabled: !!msg.value });
-      await broadcastUpdate();
+      await broadcastUpdate(next);
       return { ok: true, state: next };
     }
+    case "SET_MODE": {
+      const mode = ["filter", "once", "toggle"].includes(msg.mode) ? msg.mode : "filter";
+      const next = await setState({ mode });
+      await broadcastUpdate(next);
+      return { ok: true, state: next };
+    }
+    case "SET_TOGGLE": {
+      // Flip (or set) the global on/off used by "toggle" mode.
+      const cur = await getState();
+      const value = typeof msg.value === "boolean" ? msg.value : !cur.toggleOn;
+      const next = await setState({ toggleOn: value });
+      await broadcastUpdate(next);
+      return { ok: true, state: next };
+    }
+    case "SET_GLOBAL_FEATURE": {
+      const f = FEATURES[msg.feature];
+      if (!f) return { ok: false, error: "unknown_feature" };
+      const next = await setState({ [f.global]: !!msg.value });
+      await broadcastUpdate(next);
+      return { ok: true, state: next };
+    }
+    case "SET_FEATURE_RULE": {
+      const f = FEATURES[msg.feature];
+      if (!f) return { ok: false, error: "unknown_feature" };
+      const host = (msg.hostname || "").toLowerCase();
+      if (!host) return { ok: false, error: "missing_hostname" };
+      const state = await getState();
+      const list = setRule(state[f.key], host, msg.includeSubdomains, msg.on);
+      const next = await setState({ [f.key]: list });
+      await broadcastUpdate(next);
+      return { ok: true, state: next };
+    }
+    case "REMOVE_FEATURE_RULE": {
+      const f = FEATURES[msg.feature];
+      if (!f) return { ok: false, error: "unknown_feature" };
+      const host = (msg.hostname || "").toLowerCase();
+      if (!host) return { ok: false, error: "missing_hostname" };
+      const state = await getState();
+      const list = (state[f.key] || []).filter(e => (e.domain || "").toLowerCase() !== host);
+      const next = await setState({ [f.key]: list });
+      await broadcastUpdate(next);
+      return { ok: true, state: next };
+    }
+    // ── Legacy per-domain handlers (kept for back-compat) ────────────────────
     case "SET_DOMAIN_ENHANCE_CONTRAST": {
       const state = await getState();
       const host = (msg.hostname || "").toLowerCase();
-      const includeSubdomains = !!msg.includeSubdomains;
-      const cur = state.enhanceContrastDomains || [];
-      const list = cur.filter(e => e.domain.toLowerCase() !== host);
-      if (msg.enabled) list.push({ domain: host, includeSubdomains });
-      const next = await setState({ enhanceContrastDomains: list });
-      await broadcastUpdate();
+      const cur = (state.enhanceContrastDomains || []).filter(e => e.domain.toLowerCase() !== host);
+      if (msg.enabled) cur.push({ domain: host, includeSubdomains: !!msg.includeSubdomains, on: true });
+      const next = await setState({ enhanceContrastDomains: cur });
+      await broadcastUpdate(next);
       return { ok: true, state: next };
     }
     case "SET_DOMAIN_DISABLED": {
       const state = await getState();
       const host = (msg.hostname || "").toLowerCase();
-      const includeSubdomains = !!msg.includeSubdomains;
-      const list = state.disabledDomains.filter(
-        e => e.domain.toLowerCase() !== host
-      );
-      if (msg.disabled) list.push({ domain: host, includeSubdomains });
+      const list = state.disabledDomains.filter(e => e.domain.toLowerCase() !== host);
+      if (msg.disabled) list.push({ domain: host, includeSubdomains: !!msg.includeSubdomains, on: false });
       const next = await setState({ disabledDomains: list });
-      await broadcastUpdate();
+      await broadcastUpdate(next);
       return { ok: true, state: next };
     }
     case "SET_DOMAIN_IMAGE_INVERSION_DISABLED": {
       const state = await getState();
       const host = (msg.hostname || "").toLowerCase();
-      const includeSubdomains = !!msg.includeSubdomains;
-      const cur = state.noImageInversionDomains || [];
-      const list = cur.filter(e => e.domain.toLowerCase() !== host);
-      if (msg.disabled) list.push({ domain: host, includeSubdomains });
-      const next = await setState({ noImageInversionDomains: list });
-      await broadcastUpdate();
+      const cur = (state.noImageInversionDomains || []).filter(e => e.domain.toLowerCase() !== host);
+      if (msg.disabled) cur.push({ domain: host, includeSubdomains: !!msg.includeSubdomains, on: true });
+      const next = await setState({ noImageInversionDomains: cur });
+      await broadcastUpdate(next);
       return { ok: true, state: next };
     }
     case "IMPORT_SETTINGS": {
-      const next = sanitizeImportedData(msg && msg.data);
-      if (!next) return { ok: false, error: "invalid_payload" };
-      await replaceState(next);
-      await broadcastUpdate();
+      const sanitized = sanitizeImportedData(msg && msg.data);
+      if (!sanitized) return { ok: false, error: "invalid_payload" };
+      const next = await replaceState(sanitized);
+      await broadcastUpdate(next);
       return { ok: true, state: next };
     }
     case "REMOVE_DOMAIN_CONFIG": {
@@ -124,13 +186,13 @@ async function handle(msg, sender) {
         e => e.domain.toLowerCase() !== host
       );
       const next = await setState({ disabledDomains, noImageInversionDomains, enhanceContrastDomains });
-      await broadcastUpdate();
+      await broadcastUpdate(next);
       return { ok: true, state: next };
     }
     case "CLEAR_ALL_DOMAINS": {
       // Drop every per-site override; keep the global master switch as-is.
       const next = await setState({ disabledDomains: [], noImageInversionDomains: [], enhanceContrastDomains: [] });
-      await broadcastUpdate();
+      await broadcastUpdate(next);
       return { ok: true, state: next };
     }
     case "GET_REGISTRABLE": {

@@ -25,6 +25,18 @@
   <div class="da-tab-panel active" data-panel="settings">
     <section class="da-row">
       <div class="da-row-text">
+        <div class="da-row-title">Working mode</div>
+        <div class="da-row-desc" id="da-mode-desc">How the toolbar button behaves.</div>
+      </div>
+      <select id="da-mode" class="da-select" aria-label="Working mode">
+        <option value="filter">Filter by website</option>
+        <option value="once">Apply once on click</option>
+        <option value="toggle">On/off on click</option>
+      </select>
+    </section>
+
+    <section class="da-row">
+      <div class="da-row-text">
         <div class="da-row-title">Global</div>
         <div class="da-row-desc" id="da-global-desc">Master kill switch for every site.</div>
       </div>
@@ -38,6 +50,10 @@
       <div class="da-ptable">
         <div class="da-prow da-phead">
           <div class="da-pfeat da-pcorner">Per-site</div>
+          <div class="da-pcol" title="Default for all sites without a custom rule">
+            <svg class="da-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></svg>
+            <button type="button" class="da-q" data-hint="Global: the default for every site that has no custom rule.">?</button>
+          </div>
           <div class="da-pcol" title="On this exact host only">
             <svg class="da-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2" fill="currentColor"/><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/></svg>
             <button type="button" class="da-q" data-hint="This host: applies on this exact site only.">?</button>
@@ -54,6 +70,7 @@
             <span>Dark mode</span>
             <button type="button" class="da-q" data-hint="Dark mode: the inversion. Uncheck to turn it off on this site.">?</button>
           </div>
+          <div class="da-pcell"><input type="checkbox" id="da-dark-global" aria-label="Dark mode globally" /></div>
           <div class="da-pcell"><input type="checkbox" id="da-domain" aria-label="Dark mode on this host" /></div>
           <div class="da-pcell"><input type="checkbox" id="da-sub" aria-label="Dark mode on subdomains" /></div>
         </div>
@@ -64,6 +81,7 @@
             <span>Natural images</span>
             <button type="button" class="da-q" data-hint="Natural images: keep every image's original colours, even ones the auto heuristic would skip.">?</button>
           </div>
+          <div class="da-pcell"><input type="checkbox" id="da-img-global" aria-label="Natural images globally" /></div>
           <div class="da-pcell"><input type="checkbox" id="da-noimg" aria-label="Natural images on this host" /></div>
           <div class="da-pcell"><input type="checkbox" id="da-noimg-sub" aria-label="Natural images on subdomains" /></div>
         </div>
@@ -74,6 +92,7 @@
             <span>Soft dark gray</span>
             <button type="button" class="da-q" data-hint="Soft dark gray: lift pure black to dark gray so the page keeps visual depth instead of flattening to black.">?</button>
           </div>
+          <div class="da-pcell"><input type="checkbox" id="da-hc-global" aria-label="Soft dark gray globally" /></div>
           <div class="da-pcell"><input type="checkbox" id="da-hc" aria-label="Soft dark gray on this host" /></div>
           <div class="da-pcell"><input type="checkbox" id="da-hc-sub" aria-label="Soft dark gray on subdomains" /></div>
         </div>

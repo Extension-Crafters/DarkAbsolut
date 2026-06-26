@@ -225,20 +225,29 @@
   // A no-repeat background image counts as a logo/photo/illustration (rather
   // than a small UI glyph) when its element is sizeable, bounded, and carries
   // no text:
-  //   • below MIN side it's a themeable icon/glyph — leave it to invert;
+  //   • below the LONG-side picture threshold it's a themeable icon/glyph —
+  //     leave it to invert with the theme so a DARK glyph stays visible instead
+  //     of being kept dark-on-dark. A picture/logo is "generally larger than
+  //     ~100px" (the icon-vs-picture size discriminant); a sprite-driven UI icon
+  //     stays well under it. Keyed on the LONG side, not the short one, so a wide
+  //     wordmark logo (e.g. wikiHow's 172×72 header) is still treated as a logo;
+  //   • a tiny short side is a sliver/hairline, not a picture;
   //   • above MAX side it's likely a full-width decorative band, where a light
   //     image would become a bright stripe — leave it to darken (genuine large
   //     photos almost always use background-size:cover, handled above);
   //   • text-bearing elements are excluded — tagging them would revert their
   //     text too (the icon-beside-a-label / dark-on-dark sidebar case).
-  const MIN_BG_PHOTO_SIDE = 48;   // px — smaller is an icon/glyph
-  const MIN_BG_PHOTO_AREA = 8000; // px²
-  const MAX_BG_PHOTO_SIDE = 600;  // px — larger is treated as a decorative band
+  const MIN_BG_PHOTO_SIDE = 48;        // px — shorter side floor (a sliver isn't a picture)
+  const MIN_BG_PHOTO_LONG_SIDE = 100;  // px — longer side; below it the image is a UI icon
+  const MIN_BG_PHOTO_AREA = 8000;      // px²
+  const MAX_BG_PHOTO_SIDE = 600;       // px — larger is treated as a decorative band
   function isLogoOrPhotoBg(el) {
     let r;
     try { r = el.getBoundingClientRect(); } catch (_) { return false; }
+    const longSide = Math.max(r.width, r.height);
+    if (longSide < MIN_BG_PHOTO_LONG_SIDE) return false; // icon-sized → invert with theme
     if (Math.min(r.width, r.height) < MIN_BG_PHOTO_SIDE) return false;
-    if (Math.max(r.width, r.height) > MAX_BG_PHOTO_SIDE) return false;
+    if (longSide > MAX_BG_PHOTO_SIDE) return false;
     if (r.width * r.height < MIN_BG_PHOTO_AREA) return false;
     return !hasTextContent(el);
   }
@@ -472,6 +481,19 @@
     return false;
   }
 
+  // Input types whose visible content (value / placeholder) is painted via the
+  // element's own `color`, not a child text node — so hasDirectText misses them.
+  const TEXT_INPUT_TYPES = new Set(
+    ["text", "search", "email", "url", "tel", "password", "number", ""]);
+
+  // True for a form field whose text is its `color` (so the text rescue should
+  // consider it even though it has no child text node).
+  function isTextField(el) {
+    if (el.tagName === "TEXTAREA") return true;
+    if (el.tagName !== "INPUT") return false;
+    return TEXT_INPUT_TYPES.has((el.getAttribute("type") || "text").trim().toLowerCase());
+  }
+
   // If the element's text renders dark on a dark surface, mark it so the
   // injected CSS forces it light. Sets only a data-attribute — never inline
   // style — so it can't trigger the controller's style-watching observer
@@ -484,7 +506,13 @@
     if (document.documentElement.getAttribute(DA.ATTR) !== "on") return;
     if (el === document.documentElement || el === document.body) return;
     if (el.hasAttribute(ORIG_ATTR)) return; // pre-lighten owns this element's colour
-    if (!hasDirectText(el)) return;
+    // Form fields paint their value + ::placeholder via the element's `color`,
+    // not a child text node, so hasDirectText misses them. The search box is the
+    // canonical victim: Gmail styles it with light text (color:#fff…) that the
+    // page invert flips to near-black on the now-dark bar — unreadable typed text
+    // AND placeholder. Treat such fields as text-bearing so the rescue forces
+    // them light again (the ::placeholder is fixed by a matching CSS rule).
+    if (!hasDirectText(el) && !isTextField(el)) return;
     // Shadow-DOM text: chainInvertParity can't cross the shadow boundary to the
     // page filter, so its parity is unreliable — leave shadow text alone.
     if (el.getRootNode() !== document) { el.removeAttribute(RESCUE_COLOR_ATTR); return; }

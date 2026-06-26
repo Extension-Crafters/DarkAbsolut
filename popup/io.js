@@ -1,11 +1,11 @@
 // DarkAbsolut - Import/Export full-page logic
 const { $, send } = DAPopup;
 
-let currentState = { globalEnabled: true, disabledDomains: [] };
+let currentState = { globalEnabled: true, mode: "filter", toggleOn: true, globalDarkMode: true, globalNaturalImages: false, globalSoftGray: false, disabledDomains: [] };
 
 async function loadState() {
   const r = await send({ type: "GET_FULL_STATE" });
-  currentState = (r && r.state) || { globalEnabled: true, disabledDomains: [] };
+  currentState = (r && r.state) || { globalEnabled: true, mode: "filter", toggleOn: true, globalDarkMode: true, globalNaturalImages: false, globalSoftGray: false, disabledDomains: [] };
   $("cur-global").textContent = currentState.globalEnabled ? "On" : "Off";
   $("cur-count").textContent = String((currentState.disabledDomains || []).length);
 }
@@ -36,20 +36,20 @@ async function onExport() {
   setMsg("export-msg", "");
   try {
     await loadState();
+    const arr = (v) => (Array.isArray(v) ? v : []);
     const payload = {
       app: "DarkAbsolut",
-      version: 1,
+      version: 2,
       exportedAt: new Date().toISOString(),
       globalEnabled: !!currentState.globalEnabled,
-      disabledDomains: Array.isArray(currentState.disabledDomains)
-        ? currentState.disabledDomains
-        : [],
-      noImageInversionDomains: Array.isArray(currentState.noImageInversionDomains)
-        ? currentState.noImageInversionDomains
-        : [],
-      enhanceContrastDomains: Array.isArray(currentState.enhanceContrastDomains)
-        ? currentState.enhanceContrastDomains
-        : []
+      mode: currentState.mode || "filter",
+      toggleOn: !!currentState.toggleOn,
+      globalDarkMode: !!currentState.globalDarkMode,
+      globalNaturalImages: !!currentState.globalNaturalImages,
+      globalSoftGray: !!currentState.globalSoftGray,
+      disabledDomains: arr(currentState.disabledDomains),
+      noImageInversionDomains: arr(currentState.noImageInversionDomains),
+      enhanceContrastDomains: arr(currentState.enhanceContrastDomains)
     };
     const json = JSON.stringify(payload, null, 2);
     const blob = new Blob([json], { type: "application/json" });
@@ -80,7 +80,9 @@ function validateEntries(rawList) {
     const domain = e.domain.trim().toLowerCase();
     if (!domain || seen.has(domain)) { result.skipped++; continue; }
     seen.add(domain);
-    result.kept.push({ domain, includeSubdomains: !!e.includeSubdomains });
+    const entry = { domain, includeSubdomains: !!e.includeSubdomains };
+    if (typeof e.on === "boolean") entry.on = e.on;
+    result.kept.push(entry);
   }
   return result;
 }
@@ -116,6 +118,7 @@ async function onImportFile(e) {
     const vNoImg = validateEntries(data.noImageInversionDomains);
     const vHc = validateEntries(data.enhanceContrastDomains);
     const globalEnabled = typeof data.globalEnabled === "boolean" ? data.globalEnabled : true;
+    const bool = (x, d) => (typeof x === "boolean" ? x : d);
     $("sum-found").textContent = String(v.found);
     $("sum-skipped").textContent = String(v.skipped);
     $("sum-global").textContent = globalEnabled ? "On" : "Off";
@@ -129,6 +132,11 @@ async function onImportFile(e) {
       type: "IMPORT_SETTINGS",
       data: {
         globalEnabled,
+        mode: ["filter", "once", "toggle"].includes(data.mode) ? data.mode : "filter",
+        toggleOn: bool(data.toggleOn, true),
+        globalDarkMode: bool(data.globalDarkMode, true),
+        globalNaturalImages: bool(data.globalNaturalImages, false),
+        globalSoftGray: bool(data.globalSoftGray, false),
         disabledDomains: v.kept,
         noImageInversionDomains: vNoImg.kept,
         enhanceContrastDomains: vHc.kept

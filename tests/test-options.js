@@ -70,7 +70,7 @@ const sendFrom = (page, msg) =>
       const tr = rows.find(r => r.textContent.includes('example.com') && !r.textContent.includes('news.'));
       return tr ? tr.innerText.replace(/\s+/g, ' ').trim() : null;
     });
-    assert('merged row shows Disabled + Forced + subdomain note', merged && /Disabled/.test(merged) && /Forced/.test(merged) && /subdomains/.test(merged), merged);
+    assert('merged row shows dark Off + images Natural + subdomain note', merged && /Off/.test(merged) && /Natural/.test(merged) && /subdomains/.test(merged), merged);
 
     // Remove a single host.
     await opt.evaluate(() => document.querySelector('button.opt-remove[data-host="news.example.org"]').click());

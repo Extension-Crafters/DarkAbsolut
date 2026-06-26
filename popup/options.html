@@ -20,6 +20,58 @@
   </header>
 
   <main class="io-main opt-main">
+    <section class="io-card opt-settings">
+      <div>
+        <h2>Settings</h2>
+        <p class="io-desc">
+          Global controls — also reachable here when the toolbar button is in a
+          click-driven mode (it no longer opens the popup then).
+        </p>
+      </div>
+      <div class="da-row">
+        <div class="da-row-text">
+          <div class="da-row-title">Working mode</div>
+          <div class="da-row-desc">
+            Filter by website (auto), apply once per page on click, or toggle
+            dark mode on/off with the toolbar button.
+          </div>
+        </div>
+        <select id="opt-mode" class="da-select">
+          <option value="filter">Filter by website</option>
+          <option value="once">Apply once on click</option>
+          <option value="toggle">On/off on click</option>
+        </select>
+      </div>
+      <div class="da-row">
+        <div class="da-row-text">
+          <div class="da-row-title">Global (master)</div>
+          <div class="da-row-desc">Master kill switch for every site.</div>
+        </div>
+        <label class="da-switch"><input type="checkbox" id="opt-master" /><span class="da-slider"></span></label>
+      </div>
+      <div class="da-row">
+        <div class="da-row-text">
+          <div class="da-row-title">Dark mode — global default</div>
+          <div class="da-row-desc">Invert light pages on every site without a custom rule.</div>
+        </div>
+        <label class="da-switch"><input type="checkbox" id="opt-g-dark" /><span class="da-slider"></span></label>
+      </div>
+      <div class="da-row">
+        <div class="da-row-text">
+          <div class="da-row-title">Natural images — global default</div>
+          <div class="da-row-desc">Keep images' real colours everywhere by default.</div>
+        </div>
+        <label class="da-switch"><input type="checkbox" id="opt-g-img" /><span class="da-slider"></span></label>
+      </div>
+      <div class="da-row">
+        <div class="da-row-text">
+          <div class="da-row-title">Soft dark gray — global default</div>
+          <div class="da-row-desc">Lift pure black to dark gray everywhere by default.</div>
+        </div>
+        <label class="da-switch"><input type="checkbox" id="opt-g-hc" /><span class="da-slider"></span></label>
+      </div>
+    </section>
+
     <section class="io-card">
       <div>
         <h2>Per-site configuration</h2>
@@ -44,6 +96,7 @@
               <th class="opt-col-site">Site</th>
               <th class="opt-col-theme">Dark theme</th>
               <th class="opt-col-img">Natural images</th>
+              <th class="opt-col-img">Soft dark gray</th>
               <th class="opt-col-act">Actions</th>
             </tr>
           </thead>

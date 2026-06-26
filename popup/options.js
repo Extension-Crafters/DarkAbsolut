@@ -33,17 +33,30 @@ function buildRows(state) {
   };
   for (const e of state.disabledDomains || []) {
     if (!e || typeof e.domain !== "string") continue;
-    const r = get(e.domain);
-    r.themeDisabled = true;
-    r.themeSub = !!e.includeSubdomains;
+    get(e.domain).dark = { on: !!e.on, sub: !!e.includeSubdomains };
   }
   for (const e of state.noImageInversionDomains || []) {
     if (!e || typeof e.domain !== "string") continue;
-    const r = get(e.domain);
-    r.naturalImages = true;
-    r.imgSub = !!e.includeSubdomains;
+    get(e.domain).img = { on: !!e.on, sub: !!e.includeSubdomains };
+  }
+  for (const e of state.enhanceContrastDomains || []) {
+    if (!e || typeof e.domain !== "string") continue;
+    get(e.domain).hc = { on: !!e.on, sub: !!e.includeSubdomains };
   }
   return [...map.values()].sort((a, b) => a.domain.localeCompare(b.domain));
+}
+
+// One feature cell: an on/off badge with optional "incl. subdomains" note, or a
+// muted "default" when this host has no rule for that feature.
+function featureCell(rule, onText, offText) {
+  const td = document.createElement("td");
+  td.appendChild(
+    rule
+      ? badge(rule.on ? onText : offText, rule.on ? "opt-badge-on" : "opt-badge-off",
+              rule.sub ? "incl. subdomains" : null)
+      : badge("default", "opt-badge-muted", null)
+  );
+  return td;
 }
 
 function badge(text, kind, subLabel) {
@@ -78,23 +91,10 @@ function renderRow(row) {
   tdSite.appendChild(a);
   tr.appendChild(tdSite);
 
-  // Dark theme column
-  const tdTheme = document.createElement("td");
-  tdTheme.appendChild(
-    row.themeDisabled
-      ? badge("Disabled", "opt-badge-off", row.themeSub ? "incl. subdomains" : null)
-      : badge("On (auto)", "opt-badge-muted", null)
-  );
-  tr.appendChild(tdTheme);
-
-  // Natural images column
-  const tdImg = document.createElement("td");
-  tdImg.appendChild(
-    row.naturalImages
-      ? badge("Forced", "opt-badge-on", row.imgSub ? "incl. subdomains" : null)
-      : badge("Auto", "opt-badge-muted", null)
-  );
-  tr.appendChild(tdImg);
+  // Dark theme / Natural images / Soft dark gray columns (per-host rule values).
+  tr.appendChild(featureCell(row.dark, "On", "Off"));
+  tr.appendChild(featureCell(row.img, "Natural", "Inverted"));
+  tr.appendChild(featureCell(row.hc, "On", "Off"));
 
   // Actions
   const tdAct = document.createElement("td");
@@ -122,8 +122,15 @@ function setMsg(text, kind) {
 async function render() {
   const r = await send({ type: "GET_FULL_STATE" });
   const state = (r && r.state) || { disabledDomains: [], noImageInversionDomains: [] };
-  const rows = buildRows(state);
 
+  // Settings card.
+  if ($("opt-mode")) $("opt-mode").value = state.mode || "filter";
+  if ($("opt-master")) $("opt-master").checked = !!state.globalEnabled;
+  if ($("opt-g-dark")) $("opt-g-dark").checked = !!state.globalDarkMode;
+  if ($("opt-g-img")) $("opt-g-img").checked = !!state.globalNaturalImages;
+  if ($("opt-g-hc")) $("opt-g-hc").checked = !!state.globalSoftGray;
+
+  const rows = buildRows(state);
   const tbody = $("opt-rows");
   tbody.replaceChildren(...rows.map(renderRow));
 
@@ -166,9 +173,23 @@ async function onClearAll() {
   await render();
 }
 
+async function onSettingChange(msg) {
+  setMsg("");
+  const r = await send(msg);
+  if (!r || !r.ok) setMsg("Could not save setting: " + ((r && r.error) || "unknown error"), "error");
+  await render();
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   $("opt-clear-top").addEventListener("click", onClearAll);
   $("opt-clear-bottom").addEventListener("click", onClearAll);
+
+  // Settings card → background.
+  $("opt-mode").addEventListener("change", e => onSettingChange({ type: "SET_MODE", mode: e.target.value }));
+  $("opt-master").addEventListener("change", e => onSettingChange({ type: "SET_GLOBAL_ENABLED", value: e.target.checked }));
+  $("opt-g-dark").addEventListener("change", e => onSettingChange({ type: "SET_GLOBAL_FEATURE", feature: "dark", value: e.target.checked }));
+  $("opt-g-img").addEventListener("change", e => onSettingChange({ type: "SET_GLOBAL_FEATURE", feature: "img", value: e.target.checked }));
+  $("opt-g-hc").addEventListener("change", e => onSettingChange({ type: "SET_GLOBAL_FEATURE", feature: "contrast", value: e.target.checked }));
 
   // Keep the table in sync if settings change elsewhere (e.g. the popup on
   // another tab) while this page is open.
