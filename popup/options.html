@@ -70,6 +70,21 @@
         </div>
         <label class="da-switch"><input type="checkbox" id="opt-g-hc" /><span class="da-slider"></span></label>
       </div>
+      <div class="da-row">
+        <div class="da-row-text">
+          <div class="da-row-title">Re-analyse delay — global default</div>
+          <div class="da-row-desc">
+            How long to wait for a page to stop changing before re-theming it
+            (ms). Higher is smoother on busy/animated pages — e.g. a Google AI
+            answer streaming in on a phone — but themes new content a little
+            later. 60–5000 ms; default 250. Override per site from the popup.
+          </div>
+        </div>
+        <span class="opt-delay-field">
+          <input type="number" id="opt-g-delay" class="da-num" min="60" max="5000" step="10" inputmode="numeric" aria-label="Re-analyse delay global default (ms)" />
+          <span class="opt-delay-unit">ms</span>
+        </span>
+      </div>
     </section>
 
     <section class="io-card">
@@ -97,6 +112,7 @@
               <th class="opt-col-theme">Dark theme</th>
               <th class="opt-col-img">Natural images</th>
               <th class="opt-col-img">Soft dark gray</th>
+              <th class="opt-col-delay">Re-analyse delay</th>
               <th class="opt-col-act">Actions</th>
             </tr>
           </thead>

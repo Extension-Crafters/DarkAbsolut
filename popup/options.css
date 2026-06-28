@@ -132,6 +132,12 @@
 }
 .opt-remove svg { flex-shrink: 0; }
 
+/* Global re-analyse-delay input (Settings card) */
+.opt-delay-field { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.opt-delay-field .da-num { width: 76px; }
+.opt-delay-unit { color: var(--fg-dim); font-size: 12px; }
+.opt-col-delay { white-space: nowrap; }
+
 /* Empty state */
 .opt-empty {
   text-align: center;

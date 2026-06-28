@@ -16,7 +16,7 @@
 
   const {
     ORIG_ATTR, ORIG_COLOR_ATTR, BG_IMAGE_ATTR, BG_ICON_ATTR,
-    NATIVE_DARK_ATTR, NATIVE_LIGHT_ATTR, RESCUE_COLOR_ATTR
+    NATIVE_DARK_ATTR, NATIVE_LIGHT_ATTR, RESCUE_COLOR_ATTR, LIGHT_ICON_ATTR
   } = DA;
 
   // Minimum fraction of the viewport area a subtree must cover before we
@@ -35,6 +35,31 @@
   // so flips the entire dark area to light (mesepices footer: a 9.7% white
   // strip was turning the whole 1280×595 footer light).
   const LIGHT_CHILD_VETO_RATIO = 0.5;
+
+  // A neutral-dark background that is SEMI-TRANSPARENT (alpha below this) is a
+  // scrim / elevation overlay, not a real dark surface — e.g. Gmail paints the
+  // reading pane rgba(51,51,51,0.8) from a `prefers-color-scheme: dark` media
+  // query while the page theme is still light. Counter-inverting a translucent
+  // surface does NOT keep it dark: the double-invert washes it to mid-gray (a
+  // big light blob over the otherwise-dark UI). So a sizeable translucent dark
+  // scrim is NEUTRALISED (background made transparent) so the already-inverted
+  // dark content behind shows through; opaque dark surfaces (alpha >= this)
+  // keep the normal darknative counter-invert.
+  const SCRIM_MIN_OPAQUE_ALPHA = 0.92;
+  const SCRIM_MIN_AREA = 50000; // px² — only neutralise large scrims, not chips/tooltips
+
+  // Light vector-SVG icon rescue. A small vector glyph whose paint colour is
+  // already light (luminance above this) would be flipped to black-on-dark by
+  // the page invert — counter-invert it instead so it stays light. Only applied
+  // to UI-icon-sized SVGs (longer side at or below this) so logos/illustrations
+  // (which carry their own colours) are untouched.
+  const LIGHT_ICON_MAX_PX = 48;
+  // Relative-luminance crossover above which an icon is "light": keeping it
+  // (counter-invert) gives MORE contrast on the now-dark page than letting it
+  // invert. 0.5 is the natural midpoint — and notably Gmail paints some glyphs a
+  // dim light-gray (e.g. the selection-action toolbar icons at ~rgb(196,199,197),
+  // lum ~0.56), which a higher threshold would miss and leave dark-on-dark.
+  const LIGHT_ICON_MIN_LUM = 0.5;
 
   // Form controls get browser-injected background-images (dropdown arrows,
   // spinners) that don't need re-inversion — the html-level filter is enough.
@@ -89,12 +114,32 @@
     const maxSat = nativeDarkMaxSat(lum);
     const sat = DA.colors.saturation(c);
     if (lum < 0.10 && sat < maxSat) {
+      let wrapperArea = 0;
+      try { const r = el.getBoundingClientRect(); wrapperArea = r.width * r.height; } catch (_) {}
+      // A large SEMI-TRANSPARENT dark surface is a scrim/elevation overlay, not
+      // a real dark theme region. Counter-inverting it washes it to light gray
+      // (Gmail's prefers-dark reading pane), so neutralise it instead — making
+      // it transparent reveals the already-inverted dark content behind.
+      //
+      // BUT only when the scrim sits over LIGHT-THEMED content, detected by the
+      // element's own foreground text colour being DARK. A translucent dark
+      // surface whose foreground is LIGHT is a genuine dark-themed region (light
+      // icons/text — a toolbar, nav, message row); neutralising it would let the
+      // root filter invert that light content to dark (black-on-black icons), so
+      // leave those to the darknative path below.
+      const fg = parseColor(cs.color);
+      const fgIsLight = fg && fg.a > 0.3 && luminance(fg) > 0.5;
+      if (c.a < SCRIM_MIN_OPAQUE_ALPHA && wrapperArea >= SCRIM_MIN_AREA && !fgIsLight) {
+        if (!el.hasAttribute(ORIG_ATTR)) {
+          el.setAttribute(ORIG_ATTR, el.style.getPropertyValue("background-color") || "");
+          el.style.setProperty("background-color", "transparent", "important");
+        }
+        return false;
+      }
       // Don't tag a wrapper whose counter-filter would double-invert a LARGE
       // visible white panel (a dark frame around light content). A small light
       // widget inside a big dark wrapper must not veto tagging — otherwise the
       // whole dark area flips to light. Scale the veto to the wrapper's size.
-      let wrapperArea = 0;
-      try { const r = el.getBoundingClientRect(); wrapperArea = r.width * r.height; } catch (_) {}
       const minLightArea = wrapperArea * LIGHT_CHILD_VETO_RATIO;
       if (hasVisibleLightDescendant(el, 3, minLightArea)) return false;
       // Don't tag a wrapper that fronts large RASTER media. That media is
@@ -617,6 +662,11 @@
         } catch (_) { finish(null); } // tainted (cross-origin) → unknown
       };
       img.onerror = () => finish(null);
+      // Request via CORS so a cross-origin asset served with
+      // Access-Control-Allow-Origin (e.g. Gmail's gstatic label sprites) can be
+      // drawn + read instead of tainting the canvas. Non-CORS cross-origin
+      // images simply fail to load here → null (same outcome as a taint).
+      try { img.crossOrigin = "anonymous"; } catch (_) {}
       try { img.src = url; } catch (_) { finish(null); }
       setTimeout(() => finish(null), 4000); // safety timeout
     });
@@ -684,6 +734,97 @@
     else getIconStats(url).then(decide);
   }
 
+  // Light vector-SVG UI icon rescue. A mixed prefers-color-scheme:dark page (a
+  // light-themed Gmail under an OS that prefers dark) serves some chrome glyphs
+  // ALREADY light; the page-level invert flips those to black-on-dark
+  // (invisible). Tag a small, light, vector SVG so CSS counter-inverts it back
+  // to light — the mirror of the dark-bg-icon rescue (classifyBgIcon).
+  function classifyLightIconSvg(el, cs) {
+    if (el.tagName.toLowerCase() !== "svg") return;
+    const clear = () => { if (el.hasAttribute(LIGHT_ICON_ATTR)) el.removeAttribute(LIGHT_ICON_ATTR); };
+    // Inside a kept-dark wrapper the icon already shows its true (light) colour
+    // via the wrapper's counter-invert; a tagged bg-image SVG is handled by the
+    // media rules. Don't double-handle either.
+    if (el.hasAttribute(BG_IMAGE_ATTR) || hasNativeDarkAncestor(el)) { clear(); return; }
+    let r; try { r = el.getBoundingClientRect(); } catch (_) { clear(); return; }
+    if (!r || r.width === 0 || Math.max(r.width, r.height) > LIGHT_ICON_MAX_PX) { clear(); return; }
+    let hasRaster = false;
+    try { hasRaster = !!el.querySelector("image"); } catch (_) {}
+    if (hasRaster) { clear(); return; } // raster <image> → covered by media rules
+    // Effective paint colour: a non-black explicit fill, else the (currentColor)
+    // text colour — what actually paints a currentColor glyph.
+    let paint = parseColor(cs.fill);
+    const fillBlackish = !paint || paint.a < 0.2 || (paint.r < 24 && paint.g < 24 && paint.b < 24);
+    if (fillBlackish) paint = parseColor(cs.color);
+    if (paint && paint.a >= 0.2 && luminance(paint) > LIGHT_ICON_MIN_LUM) {
+      if (!el.hasAttribute(LIGHT_ICON_ATTR)) el.setAttribute(LIGHT_ICON_ATTR, "1");
+    } else {
+      clear();
+    }
+  }
+
+  // Light background-image UI glyph rescue. The bg-image counterpart of
+  // classifyLightIconSvg: a small no-`<img>` element whose background-image
+  // SAMPLES light (Gmail's prefers-dark nav label/folder sprites, served from
+  // gstatic with CORS) would be flipped to black-on-dark by the page invert.
+  // Sample its pixels (async, cached) and counter-invert the light ones.
+  function classifyLightBgIcon(el, bg) {
+    const url = firstUrl(bg);
+    if (!url) { if (el.hasAttribute(LIGHT_ICON_ATTR)) el.removeAttribute(LIGHT_ICON_ATTR); return; }
+    const decide = s => {
+      if (!el.isConnected) return;
+      if (s && s.lum != null && s.lum > LIGHT_ICON_MIN_LUM) {
+        if (!el.hasAttribute(LIGHT_ICON_ATTR)) el.setAttribute(LIGHT_ICON_ATTR, "1");
+      } else if (el.hasAttribute(LIGHT_ICON_ATTR)) {
+        el.removeAttribute(LIGHT_ICON_ATTR);
+      }
+    };
+    if (iconStatsCache.has(url)) decide(iconStatsCache.get(url));
+    else getIconStats(url).then(decide);
+  }
+
+  // Light UI-icon rescue for non-SVG, non-<img> elements. Mixed prefers-dark
+  // themes paint small glyphs light through several mechanisms; detect each and
+  // counter-invert the LIGHT ones so the page invert doesn't bury them on the
+  // dark background. Cheap-rejects anything that isn't an icon candidate before
+  // touching layout, so it stays affordable on big pages.
+  function classifyLightIconNonSvg(el, cs) {
+    const clear = () => { if (el.hasAttribute(LIGHT_ICON_ATTR)) el.removeAttribute(LIGHT_ICON_ATTR); };
+    const ownBg = cs.backgroundImage;
+    const hasOwnBg = ownBg && ownBg !== "none" && /url\(/i.test(ownBg);
+    const mask = (cs.maskImage && cs.maskImage !== "none") ? cs.maskImage
+               : (cs.webkitMaskImage && cs.webkitMaskImage !== "none") ? cs.webkitMaskImage : null;
+    const pointer = cs.cursor === "pointer";
+    // Not an icon candidate (no own bg-image, no mask, not a clickable glyph that
+    // might paint via a pseudo-element) → bail without forcing layout.
+    if (!hasOwnBg && !mask && !pointer) { clear(); return; }
+    let r; try { r = el.getBoundingClientRect(); } catch (_) { clear(); return; }
+    if (!r || r.width === 0 || Math.max(r.width, r.height) > LIGHT_ICON_MAX_PX) { clear(); return; }
+    // (a) mask-image glyph: the shape is the mask, painted in background-color.
+    if (mask) {
+      const bc = parseColor(cs.backgroundColor);
+      if (bc && bc.a >= 0.2) {
+        if (luminance(bc) > LIGHT_ICON_MIN_LUM) {
+          if (!el.hasAttribute(LIGHT_ICON_ATTR)) el.setAttribute(LIGHT_ICON_ATTR, "1");
+        } else clear();
+        return;
+      }
+    }
+    // (b) own background-image glyph → sample its pixels.
+    if (hasOwnBg) { classifyLightBgIcon(el, ownBg); return; }
+    // (c) glyph painted by a pseudo-element background-image (the Gmail row star
+    //     renders its sprite via ::before). Counter-inverting the element flips
+    //     the pseudo too. Only checked for small clickable glyphs.
+    if (pointer) {
+      for (const pe of ["::before", "::after"]) {
+        let pbg = "none";
+        try { pbg = getComputedStyle(el, pe).backgroundImage; } catch (_) {}
+        if (pbg && pbg !== "none" && /url\(/i.test(pbg)) { classifyLightBgIcon(el, pbg); return; }
+      }
+    }
+    clear();
+  }
+
   function processElement(el) {
     if (!el || el.nodeType !== 1) return;
     try {
@@ -726,6 +867,16 @@
         } else if (el.hasAttribute(BG_ICON_ATTR)) {
           el.removeAttribute(BG_ICON_ATTR);
         }
+      }
+      // Light UI icon rescue (mixed prefers-dark themes paint some glyphs light;
+      // the page invert would flip them to black-on-dark). SVGs read their colour
+      // from CSS; other small glyphs are detected via their background-image
+      // (sampled), mask-image (glyph = background-color) or a pseudo-element
+      // background-image (the Gmail row star) — see classifyLightIconNonSvg.
+      classifyLightIconSvg(el, cs);
+      if (el.tagName !== "IMG" && el.tagName.toLowerCase() !== "svg" &&
+          !el.hasAttribute(BG_IMAGE_ATTR) && !el.hasAttribute(BG_ICON_ATTR)) {
+        classifyLightIconNonSvg(el, cs);
       }
       if (tagNativeDarkBg(el, cs)) return;
       if (el.hasAttribute(NATIVE_DARK_ATTR)) {

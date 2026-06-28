@@ -57,6 +57,16 @@ const sendFrom = (page, msg) =>
     const countText = await opt.evaluate(() => document.getElementById('opt-count-top').textContent);
     assert('header count matches row count', countText === '3', `count=${countText}`);
 
+    // Re-analyse-delay: a global numeric input (pre-filled) + a per-host column.
+    const delayUi = await opt.evaluate(() => {
+      const g = document.getElementById('opt-g-delay');
+      const hdr = [...document.querySelectorAll('.opt-table thead th')].map(t => t.textContent.trim());
+      const cells = document.querySelectorAll('#opt-rows tr:first-child td').length;
+      return { hasGlobal: !!g, gVal: g ? g.value : '', hasCol: hdr.some(h => /Re-analyse delay/i.test(h)), cells };
+    });
+    assert('global re-analyse-delay input present + filled', delayUi.hasGlobal && /^\d+$/.test(delayUi.gVal), JSON.stringify(delayUi));
+    assert('per-site table has a Re-analyse delay column', delayUi.hasCol && delayUi.cells === 6, JSON.stringify(delayUi));
+
     // Link points to the right site and opens in a new tab.
     const link = await opt.evaluate(() => {
       const a = document.querySelector('#opt-rows a.opt-link');

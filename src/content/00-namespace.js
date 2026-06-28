@@ -19,3 +19,8 @@ DA.NATIVE_DARK_ATTR = "data-darkabsolut-darknative";
 DA.NATIVE_LIGHT_ATTR = "data-darkabsolut-lightnative";
 DA.NOIMG_ATTR = "data-darkabsolut-noimg";
 DA.HC_ATTR = "data-darkabsolut-hc";
+// A vector-SVG UI icon that is ALREADY light (e.g. a prefers-color-scheme:dark
+// glyph on a page whose theme is light — the Gmail header). The page-level
+// invert would flip it to black-on-dark; this marks it for a counter-invert so
+// it stays light. The mirror of BG_ICON_ATTR (which rescues DARK bg-icons).
+DA.LIGHT_ICON_ATTR = "data-darkabsolut-lighticon";

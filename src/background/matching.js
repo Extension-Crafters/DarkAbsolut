@@ -56,13 +56,36 @@ export function resolveFeature(hostname, rules, globalDefault) {
   return m ? !!m.on : !!globalDefault;
 }
 
+// Same precedence as resolveFeature, but for a numeric per-host value (the
+// re-analyse throttle delay): exact host > longest include-subdomains match >
+// global default. Returns the matched rule's `ms`, else the global default.
+export function resolveValue(hostname, rules, globalDefault) {
+  if (!hostname) return globalDefault;
+  const h = hostname.toLowerCase();
+  let exact = null, sub = null, subLen = -1;
+  for (const entry of rules || []) {
+    const d = (entry.domain || "").toLowerCase();
+    if (!d) continue;
+    if (h === d) { exact = entry; break; }
+    if (entry.includeSubdomains && h.endsWith("." + d) && d.length > subLen) {
+      sub = entry; subLen = d.length;
+    }
+  }
+  const m = exact || sub;
+  return m ? m.ms : globalDefault;
+}
+
 export async function shouldEnableForUrl(url) {
   const state = await getState();
   const host = hostnameFromUrl(url);
   const restricted = isRestrictedUrl(url);
+  // The throttle delay governs the content script's mutation observer, which
+  // runs whenever the extension is active — so resolve it even for the base
+  // (disabled) case, where it just carries the global default.
+  const throttleDelay = resolveValue(host, state.throttleDelayDomains, state.globalThrottleDelay);
   const base = {
     enabled: false, imageInversionDisabled: false, enhanceContrast: false,
-    mode: state.mode, state
+    throttleDelay, mode: state.mode, state
   };
   if (!state.globalEnabled || !host || restricted) return base;
 
@@ -81,5 +104,5 @@ export async function shouldEnableForUrl(url) {
   } else {
     enabled = resolveFeature(host, state.disabledDomains, state.globalDarkMode);
   }
-  return { enabled, imageInversionDisabled, enhanceContrast, mode: state.mode, state };
+  return { enabled, imageInversionDisabled, enhanceContrast, throttleDelay, mode: state.mode, state };
 }

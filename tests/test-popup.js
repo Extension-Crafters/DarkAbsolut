@@ -40,6 +40,8 @@ function assert(name, cond, detail) {
         'da-img-global', 'da-noimg', 'da-noimg-sub',
         'da-hc-global', 'da-hc', 'da-hc-sub'];
       const mode = document.getElementById('da-mode');
+      const gDelay = document.getElementById('da-delay-global');
+      const sDelay = document.getElementById('da-delay-site');
       return {
         checkboxes: ids.filter(id => !!document.getElementById(id)),
         modeOptions: mode ? [...mode.options].map(o => o.value) : [],
@@ -47,6 +49,11 @@ function assert(name, cond, detail) {
         cols: document.querySelectorAll('.da-phead .da-pcol').length,
         qs: document.querySelectorAll('.da-q').length,
         hasHint: !!document.getElementById('da-hint'),
+        // Re-analyse-delay controls: a global + a per-site numeric input (ms),
+        // the global pre-filled with the default and a "subs" scope checkbox.
+        hasDelayInputs: !!gDelay && !!sDelay && !!document.getElementById('da-delay-sub'),
+        gDelayValue: gDelay ? gDelay.value : '',
+        sDelayInherits: sDelay ? (sDelay.value === '' && !!sDelay.placeholder) : false,
         // no leftover removed elements referenced
         oldDesc: !!(document.getElementById('da-domain-desc') || document.getElementById('da-hc-desc')),
         // global checkboxes always shown; with no per-site rules the subdomains
@@ -67,6 +74,9 @@ function assert(name, cond, detail) {
     assert('global checkboxes always visible', r.globalsVisible, `globals=${r.globalsVisible}`);
     assert('subdomains column collapsed with no rules', r.noSubsCollapsed, `noSubs=${r.noSubsCollapsed}`);
     assert('subdomain checkboxes hidden with no rules', r.subBoxesHidden, `hidden=${r.subBoxesHidden}`);
+    assert('re-analyse delay inputs present (global + per-site + subs)', r.hasDelayInputs, `delay=${r.hasDelayInputs}`);
+    assert('global delay input pre-filled with a value', /^\d+$/.test(r.gDelayValue), `gDelay="${r.gDelayValue}"`);
+    assert('per-site delay blank → inherits via placeholder', r.sDelayInherits, `inherit=${r.sDelayInherits}`);
 
     // Tapping a "?" surfaces its explanation in the hint line.
     const hintText = await page.evaluate(() => {

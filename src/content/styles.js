@@ -45,9 +45,19 @@ html[${ATTR}="on"] [${DA.BG_IMAGE_ATTR}="1"],
 html[${ATTR}="on"] [${DA.NATIVE_DARK_ATTR}="1"] {
   filter: invert(1) hue-rotate(180deg) !important;
 }
-/* Avoid double-inverting svg icons that use currentColor (treat as text) */
-html[${ATTR}="on"] svg:not([${DA.BG_IMAGE_ATTR}="1"]):not(:has(image)) {
+/* Avoid double-inverting svg icons that use currentColor (treat as text).
+   Excludes light-icon-rescued glyphs (handled by the rule just below). */
+html[${ATTR}="on"] svg:not([${DA.BG_IMAGE_ATTR}="1"]):not(:has(image)):not([${DA.LIGHT_ICON_ATTR}="1"]) {
   filter: none !important;
+}
+/* Light-icon rescue: a glyph that is ALREADY light (a prefers-dark icon on a
+   light-themed page — e.g. Gmail's header/nav on an OS that prefers dark) would
+   be flipped to black-on-dark by the page invert. Counter-invert it so it stays
+   light. Tags: vector SVGs (classifyLightIconSvg) and small background-image
+   glyphs whose sampled pixels are light (classifyLightBgIcon — covers Gmail's
+   cross-origin gstatic label/folder sprites). */
+html[${ATTR}="on"] [${DA.LIGHT_ICON_ATTR}="1"] {
+  filter: invert(1) hue-rotate(180deg) !important;
 }
 /* An <img> whose real content is a CSS background-image over a 1×1 placeholder
    src (the phpMyAdmin icon pattern). The blanket img counter-invert keeps that
@@ -206,7 +216,8 @@ img, video, embed, object, canvas, svg image,
 [${DA.BG_IMAGE_ATTR}="1"], [${DA.NATIVE_DARK_ATTR}="1"] {
   filter: invert(1) hue-rotate(180deg) !important;
 }
-svg:not([${DA.BG_IMAGE_ATTR}="1"]):not(:has(image)) { filter: none !important; }
+svg:not([${DA.BG_IMAGE_ATTR}="1"]):not(:has(image)):not([${DA.LIGHT_ICON_ATTR}="1"]) { filter: none !important; }
+[${DA.LIGHT_ICON_ATTR}="1"] { filter: invert(1) hue-rotate(180deg) !important; }
 img[${DA.BG_ICON_ATTR}="1"] { filter: none !important; }
 [${DA.NATIVE_DARK_ATTR}="1"] img,
 [${DA.NATIVE_DARK_ATTR}="1"] video,

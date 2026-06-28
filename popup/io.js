@@ -1,11 +1,12 @@
 // DarkAbsolut - Import/Export full-page logic
 const { $, send } = DAPopup;
 
-let currentState = { globalEnabled: true, mode: "filter", toggleOn: true, globalDarkMode: true, globalNaturalImages: false, globalSoftGray: false, disabledDomains: [] };
+const FALLBACK_STATE = { globalEnabled: true, mode: "filter", toggleOn: true, globalDarkMode: true, globalNaturalImages: false, globalSoftGray: false, globalThrottleDelay: 250, disabledDomains: [], throttleDelayDomains: [] };
+let currentState = { ...FALLBACK_STATE };
 
 async function loadState() {
   const r = await send({ type: "GET_FULL_STATE" });
-  currentState = (r && r.state) || { globalEnabled: true, mode: "filter", toggleOn: true, globalDarkMode: true, globalNaturalImages: false, globalSoftGray: false, disabledDomains: [] };
+  currentState = (r && r.state) || { ...FALLBACK_STATE };
   $("cur-global").textContent = currentState.globalEnabled ? "On" : "Off";
   $("cur-count").textContent = String((currentState.disabledDomains || []).length);
 }
@@ -47,9 +48,11 @@ async function onExport() {
       globalDarkMode: !!currentState.globalDarkMode,
       globalNaturalImages: !!currentState.globalNaturalImages,
       globalSoftGray: !!currentState.globalSoftGray,
+      globalThrottleDelay: Number.isFinite(currentState.globalThrottleDelay) ? currentState.globalThrottleDelay : 250,
       disabledDomains: arr(currentState.disabledDomains),
       noImageInversionDomains: arr(currentState.noImageInversionDomains),
-      enhanceContrastDomains: arr(currentState.enhanceContrastDomains)
+      enhanceContrastDomains: arr(currentState.enhanceContrastDomains),
+      throttleDelayDomains: arr(currentState.throttleDelayDomains)
     };
     const json = JSON.stringify(payload, null, 2);
     const blob = new Blob([json], { type: "application/json" });
@@ -85,6 +88,24 @@ function validateEntries(rawList) {
     result.kept.push(entry);
   }
   return result;
+}
+
+// Per-host throttle rules carry a numeric `ms` instead of a boolean `on`; the
+// background re-clamps it, so we just keep well-formed { domain, ms } entries.
+function validateDelayEntries(rawList) {
+  const out = [];
+  if (!Array.isArray(rawList)) return out;
+  const seen = new Set();
+  for (const e of rawList) {
+    if (!e || typeof e.domain !== "string") continue;
+    const domain = e.domain.trim().toLowerCase();
+    if (!domain || seen.has(domain)) continue;
+    seen.add(domain);
+    const entry = { domain, includeSubdomains: !!e.includeSubdomains };
+    if (e.ms != null) entry.ms = e.ms;
+    out.push(entry);
+  }
+  return out;
 }
 
 async function onImportFile(e) {
@@ -137,9 +158,11 @@ async function onImportFile(e) {
         globalDarkMode: bool(data.globalDarkMode, true),
         globalNaturalImages: bool(data.globalNaturalImages, false),
         globalSoftGray: bool(data.globalSoftGray, false),
+        globalThrottleDelay: typeof data.globalThrottleDelay === "number" ? data.globalThrottleDelay : 250,
         disabledDomains: v.kept,
         noImageInversionDomains: vNoImg.kept,
-        enhanceContrastDomains: vHc.kept
+        enhanceContrastDomains: vHc.kept,
+        throttleDelayDomains: validateDelayEntries(data.throttleDelayDomains)
       }
     });
     if (!r || !r.ok) throw new Error((r && r.error) || "Background rejected the import.");

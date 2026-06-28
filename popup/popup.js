@@ -1,5 +1,5 @@
 // DarkAbsolut - popup UI logic
-const { $, send, getActiveTab, hostFromUrl } = DAPopup;
+const { $, send, getActiveTab, hostFromUrl, THROTTLE, clampDelay, resolveValue } = DAPopup;
 
 let currentTab = null;
 let currentHostname = "";
@@ -92,6 +92,42 @@ async function refresh() {
               : !currentHostname ? "No site in this tab."
                 : "";
   }
+
+  refreshDelay(masterOff, restricted);
+}
+
+// Re-analyse throttle controls: the global default applies to every site; a
+// blank "this site" field inherits it (the placeholder shows what that resolves
+// to), while a value writes a per-host override. The "subs" box scopes the
+// override to subdomains, mirroring the per-feature rules above.
+function refreshDelay(masterOff, restricted) {
+  const gInput = $("da-delay-global");
+  const sInput = $("da-delay-site");
+  const subBox = $("da-delay-sub");
+  if (!gInput || !sInput || !subBox) return;
+
+  const globalDelay = Number.isFinite(state.globalThrottleDelay) ? state.globalThrottleDelay : THROTTLE.DEFAULT;
+  gInput.value = String(globalDelay);
+  gInput.disabled = !!masterOff;
+
+  const rules = state.throttleDelayDomains || [];
+  const rule = findRule(rules, currentHostname);
+  // What this host resolves to with no exact rule (a parent subdomain rule, or
+  // the global default) — shown as the placeholder so "blank = inherit" is clear.
+  const inherited = resolveValue(
+    rules.filter(r => (r.domain || "").toLowerCase() !== currentHostname),
+    currentHostname, globalDelay);
+  sInput.placeholder = String(inherited);
+  sInput.value = rule ? String(rule.ms) : "";
+  subBox.checked = rule ? !!rule.includeSubdomains : false;
+  // The "subs" scope only matters once a per-host override exists — hide the
+  // whole label (text + box) until then.
+  const subLabel = subBox.closest(".da-perf-sub");
+  if (subLabel) subLabel.hidden = !rule;
+
+  const siteDisabled = !!masterOff || !!restricted || !currentHostname;
+  setDisabled(sInput, siteDisabled);
+  setDisabled(subBox, siteDisabled || !rule);
 }
 
 async function onModeChange(e) {
@@ -148,6 +184,42 @@ async function onFeatureSubChange(e) {
   await refresh();
 }
 
+async function onDelayGlobalChange(e) {
+  const ms = clampDelay(e.target.value);
+  if (ms == null) { await refresh(); return; } // garbage → restore displayed value
+  await send({ type: "SET_GLOBAL_THROTTLE", ms });
+  await refresh();
+}
+
+async function onDelaySiteChange(e) {
+  if (!currentHostname) return;
+  const raw = (e.target.value || "").trim();
+  if (raw === "") {
+    // Blank → drop the override and inherit the global / parent value.
+    await send({ type: "REMOVE_THROTTLE_RULE", hostname: currentHostname });
+    await refresh();
+    return;
+  }
+  const ms = clampDelay(raw);
+  if (ms == null) { await refresh(); return; }
+  await send({
+    type: "SET_THROTTLE_RULE", hostname: currentHostname,
+    includeSubdomains: $("da-delay-sub").checked, ms
+  });
+  await refresh();
+}
+
+async function onDelaySubChange(e) {
+  if (!currentHostname) return;
+  const rule = findRule(state.throttleDelayDomains, currentHostname);
+  if (!rule) return; // only meaningful once a host override exists
+  await send({
+    type: "SET_THROTTLE_RULE", hostname: currentHostname,
+    includeSubdomains: e.target.checked, ms: rule.ms
+  });
+  await refresh();
+}
+
 function onReload() {
   if (currentTab && currentTab.id != null) chrome.tabs.reload(currentTab.id);
   window.close();
@@ -191,6 +263,9 @@ document.addEventListener("DOMContentLoaded", () => {
     $(f.host).addEventListener("change", onFeatureHostChange);
     $(f.sub).addEventListener("change", onFeatureSubChange);
   }
+  $("da-delay-global").addEventListener("change", onDelayGlobalChange);
+  $("da-delay-site").addEventListener("change", onDelaySiteChange);
+  $("da-delay-sub").addEventListener("change", onDelaySubChange);
   // "?" affordance (shown on touch devices): tap to surface a column/feature
   // explanation in the hint line — the same text desktop shows on hover.
   document.querySelectorAll(".da-q").forEach(b =>

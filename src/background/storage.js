@@ -1,5 +1,23 @@
 // DarkAbsolut — persisted settings access.
 
+// Dynamic-DOM re-analyse throttle bounds (ms). The content script waits this
+// long for a page to stop mutating before re-theming the changed nodes (a
+// trailing-edge debounce). Higher = fewer, lazier passes — smoother on heavy
+// pages (a streaming Google AI overview on a slow phone) at the cost of new
+// content staying un-themed a little longer. Keep in sync with popup/shared.js
+// and src/content/controller.js.
+export const THROTTLE_DEFAULT = 250;
+export const THROTTLE_MIN = 60;
+export const THROTTLE_MAX = 5000;
+
+// Coerce any value to a whole-millisecond delay inside [MIN, MAX]; non-numbers
+// fall back to the default (so a missing/garbage value never breaks the page).
+export function clampDelay(v) {
+  const n = Math.round(Number(v));
+  if (!Number.isFinite(n)) return THROTTLE_DEFAULT;
+  return Math.min(THROTTLE_MAX, Math.max(THROTTLE_MIN, n));
+}
+
 export const DEFAULTS = {
   // Master kill switch for the whole extension.
   globalEnabled: true,
@@ -29,7 +47,14 @@ export const DEFAULTS = {
   //     enhanceContrastDomains   → soft-gray rules     (legacy entry ⇒ on:true)
   disabledDomains: [],
   noImageInversionDomains: [],
-  enhanceContrastDomains: []
+  enhanceContrastDomains: [],
+
+  // Performance: how long (ms) the content script waits for the DOM to go quiet
+  // before re-theming changed nodes. `globalThrottleDelay` is the default for
+  // every site; `throttleDelayDomains` holds per-host overrides, each entry:
+  //   { domain, includeSubdomains, ms }
+  globalThrottleDelay: THROTTLE_DEFAULT,
+  throttleDelayDomains: []
 };
 
 const MODES = ["filter", "once", "toggle"];
@@ -55,6 +80,26 @@ function normalizeRules(list, legacyOn) {
   return out;
 }
 
+// Normalise a per-host delay list: lowercase domains, coerce flags, clamp the
+// millisecond value to the allowed range, and drop dupes.
+function normalizeDelayRules(list) {
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const e of list) {
+    if (!e || typeof e.domain !== "string") continue;
+    const domain = e.domain.trim().toLowerCase();
+    if (!domain || seen.has(domain)) continue;
+    seen.add(domain);
+    out.push({
+      domain,
+      includeSubdomains: !!e.includeSubdomains,
+      ms: clampDelay(e.ms)
+    });
+  }
+  return out;
+}
+
 function normalizeState(s) {
   const out = { ...DEFAULTS, ...s };
   if (!MODES.includes(out.mode)) out.mode = "filter";
@@ -66,6 +111,8 @@ function normalizeState(s) {
   out.disabledDomains = normalizeRules(out.disabledDomains, false);
   out.noImageInversionDomains = normalizeRules(out.noImageInversionDomains, true);
   out.enhanceContrastDomains = normalizeRules(out.enhanceContrastDomains, true);
+  out.globalThrottleDelay = clampDelay(out.globalThrottleDelay);
+  out.throttleDelayDomains = normalizeDelayRules(out.throttleDelayDomains);
   return out;
 }
 

@@ -99,6 +99,30 @@
       </div>
       <div class="da-hint" id="da-hint" aria-live="polite"></div>
     </div>
+
+    <section class="da-perf" id="da-perf">
+      <div class="da-perf-head">
+        <svg class="da-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        <span class="da-perf-title">Re-analyse delay</span>
+        <button type="button" class="da-q" data-hint="Re-analyse delay: how long DarkAbsolut waits for a page to stop changing before re-theming it. Higher = smoother on busy pages (a Google AI answer streaming in on a phone) but new content stays un-themed a little longer.">?</button>
+      </div>
+      <div class="da-perf-row">
+        <label class="da-perf-label" for="da-delay-global">All sites</label>
+        <span class="da-perf-field">
+          <input type="number" id="da-delay-global" class="da-num" min="60" max="5000" step="10" inputmode="numeric" aria-label="Re-analyse delay for all sites (ms)" />
+          <span class="da-perf-unit">ms</span>
+        </span>
+      </div>
+      <div class="da-perf-row" id="da-delay-site-row">
+        <label class="da-perf-label" for="da-delay-site">This site</label>
+        <span class="da-perf-field">
+          <input type="number" id="da-delay-site" class="da-num" min="60" max="5000" step="10" inputmode="numeric" placeholder="inherit" aria-label="Re-analyse delay for this site (ms, blank = inherit)" />
+          <span class="da-perf-unit">ms</span>
+          <label class="da-perf-sub"><input type="checkbox" id="da-delay-sub" /> subs</label>
+        </span>
+      </div>
+      <div class="da-perf-desc">Higher = smoother on busy pages, slower to theme new content. Default 250 ms. Blank “this site” = inherit the global value.</div>
+    </section>
   </div>
 
   <div class="da-tab-panel" data-panel="io">

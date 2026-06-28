@@ -1,5 +1,5 @@
 // DarkAbsolut — full-page options: table of every per-site config in memory.
-const { $, send } = DAPopup;
+const { $, send, THROTTLE, clampDelay } = DAPopup;
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -43,7 +43,23 @@ function buildRows(state) {
     if (!e || typeof e.domain !== "string") continue;
     get(e.domain).hc = { on: !!e.on, sub: !!e.includeSubdomains };
   }
+  for (const e of state.throttleDelayDomains || []) {
+    if (!e || typeof e.domain !== "string") continue;
+    get(e.domain).delay = { ms: e.ms, sub: !!e.includeSubdomains };
+  }
   return [...map.values()].sort((a, b) => a.domain.localeCompare(b.domain));
+}
+
+// Throttle-delay cell: shows the host's override (e.g. "600 ms") with an
+// optional subdomain note, or a muted "default" when it inherits the global.
+function delayCell(rule) {
+  const td = document.createElement("td");
+  td.appendChild(
+    rule
+      ? badge(rule.ms + " ms", "opt-badge-on", rule.sub ? "incl. subdomains" : null)
+      : badge("default", "opt-badge-muted", null)
+  );
+  return td;
 }
 
 // One feature cell: an on/off badge with optional "incl. subdomains" note, or a
@@ -95,6 +111,7 @@ function renderRow(row) {
   tr.appendChild(featureCell(row.dark, "On", "Off"));
   tr.appendChild(featureCell(row.img, "Natural", "Inverted"));
   tr.appendChild(featureCell(row.hc, "On", "Off"));
+  tr.appendChild(delayCell(row.delay));
 
   // Actions
   const tdAct = document.createElement("td");
@@ -129,6 +146,10 @@ async function render() {
   if ($("opt-g-dark")) $("opt-g-dark").checked = !!state.globalDarkMode;
   if ($("opt-g-img")) $("opt-g-img").checked = !!state.globalNaturalImages;
   if ($("opt-g-hc")) $("opt-g-hc").checked = !!state.globalSoftGray;
+  if ($("opt-g-delay")) {
+    $("opt-g-delay").value = String(
+      Number.isFinite(state.globalThrottleDelay) ? state.globalThrottleDelay : THROTTLE.DEFAULT);
+  }
 
   const rows = buildRows(state);
   const tbody = $("opt-rows");
@@ -190,6 +211,11 @@ document.addEventListener("DOMContentLoaded", () => {
   $("opt-g-dark").addEventListener("change", e => onSettingChange({ type: "SET_GLOBAL_FEATURE", feature: "dark", value: e.target.checked }));
   $("opt-g-img").addEventListener("change", e => onSettingChange({ type: "SET_GLOBAL_FEATURE", feature: "img", value: e.target.checked }));
   $("opt-g-hc").addEventListener("change", e => onSettingChange({ type: "SET_GLOBAL_FEATURE", feature: "contrast", value: e.target.checked }));
+  $("opt-g-delay").addEventListener("change", e => {
+    const ms = clampDelay(e.target.value);
+    if (ms == null) { render(); return; } // garbage → restore displayed value
+    onSettingChange({ type: "SET_GLOBAL_THROTTLE", ms });
+  });
 
   // Keep the table in sync if settings change elsewhere (e.g. the popup on
   // another tab) while this page is open.

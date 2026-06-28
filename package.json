@@ -4,7 +4,7 @@
   "description": "My eyes are worn... She brazenly plumbs the depths of the darkness that separates her from my pupil.  Please kill all the lights in this world! Turn off the light waiting to the end of humanity...",
   "main": "background.js",
   "scripts": {
-    "test": "node tests/test-extension.js && node tests/test-shadow.js && node tests/test-nested-media.js && node tests/test-darknative-media.js && node tests/test-contrast-rescue.js && node tests/test-input-placeholder.js && node tests/test-icon-size.js && node tests/test-interaction-recheck.js && node tests/test-light-island.js && node tests/test-detect-scroll.js && node tests/test-late-dark.js && node tests/test-dark-wrapper.js && node tests/test-map-canvas.js && node tests/test-text-plain.js && node tests/test-mutation-coalesce.js && node tests/test-bg-icon.js && node tests/test-iframe.js && node tests/test-contrast-enhance.js && node tests/test-popup.js && node tests/test-modes.js && node tests/test-dark.js && node tests/test-options.js",
+    "test": "node tests/test-extension.js && node tests/test-shadow.js && node tests/test-nested-media.js && node tests/test-darknative-media.js && node tests/test-contrast-rescue.js && node tests/test-input-placeholder.js && node tests/test-icon-size.js && node tests/test-interaction-recheck.js && node tests/test-light-island.js && node tests/test-detect-scroll.js && node tests/test-late-dark.js && node tests/test-dark-wrapper.js && node tests/test-map-canvas.js && node tests/test-text-plain.js && node tests/test-mutation-coalesce.js && node tests/test-bg-icon.js && node tests/test-iframe.js && node tests/test-contrast-enhance.js && node tests/test-popup.js && node tests/test-modes.js && node tests/test-dark.js && node tests/test-options.js && node tests/test-throttle.js && node tests/test-scrim.js && node tests/test-light-icon.js",
     "test:ext": "node tests/test-extension.js",
     "test:shadow": "node tests/test-shadow.js",
     "test:nested": "node tests/test-nested-media.js",
@@ -25,6 +25,9 @@
     "test:popup": "node tests/test-popup.js",
     "test:modes": "node tests/test-modes.js",
     "test:options": "node tests/test-options.js",
+    "test:throttle": "node tests/test-throttle.js",
+    "test:scrim": "node tests/test-scrim.js",
+    "test:lighticon": "node tests/test-light-icon.js",
     "test:colors": "node tests/test-dark.js",
     "test:visual": "node tests/visual-audit.js",
     "test:visual:live": "node tests/visual-audit.js --live",

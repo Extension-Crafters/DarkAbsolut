@@ -47,6 +47,12 @@
     ancestorInvertedHint: null,
     // Per-site soft-dark-gray contrast (mirrored from settings each evaluate).
     enhanceContrast: false,
+    // Re-analyse throttle: how long (ms) the mutation processor waits for the
+    // DOM to go quiet before re-theming changed nodes. User-configurable per
+    // site / globally so heavy pages (a streaming Google AI overview on a slow
+    // phone) can be made lazier and stop starving keyboard/input handling.
+    // Resolved from settings each evaluate; THROTTLE_DEFAULT until then.
+    throttleDelay: 250,
     // "Once" mode: the user clicked the toolbar button to dark-mode THIS page
     // load even though auto-apply says off. Sticky for the page so a later
     // STATE_UPDATED broadcast can't quietly revert it; resets on navigation.
@@ -108,22 +114,48 @@
   //
   // (DA writes only data-darkabsolut-* attributes + injected CSS, never class/
   // style or DOM nodes, so processing can't re-trigger this observer — no loop.)
-  const MUT_DEBOUNCE_MS = 120;   // flush this long after mutations go quiet
-  const MUT_MAX_WAIT_MS = 600;   // …but at least this often under constant load
-  const MUT_SLICE_MS = 12;       // work at most this long per slice, then yield
+  //
+  // Two timers, both derived from the user-configurable `state.throttleDelay`:
+  //   • the DEBOUNCE flush runs `throttleDelay` ms after mutations go quiet —
+  //     this is the "last word": once a burst (e.g. an AI overview finishing
+  //     streaming) settles, the final state is always themed.
+  //   • the MAX-WAIT flush is a relief valve for pages that NEVER go quiet
+  //     (live tickers, perpetual animations) so they still get themed. It is
+  //     scaled OFF the debounce (×STORM_FACTOR, floored/ceiled) so raising the
+  //     delay also makes these mid-storm passes rarer — the whole point of the
+  //     knob: on a slow phone a higher delay stops the greedy re-analysis that
+  //     was firing every few hundred ms and starving keystroke handling.
+  const THROTTLE_MIN = 60, THROTTLE_MAX = 5000, THROTTLE_DEFAULT = 250;
+  const STORM_FACTOR = 6;         // max-wait = debounce × this (clamped below)
+  const STORM_FLOOR_MS = 900;     // never force a mid-storm pass more often than this
+  const STORM_CEIL_MS = 12000;    // …nor wait longer than this before one
+  const MUT_SLICE_MS = 12;        // work at most this long per slice, then yield
   const pendingNodes = new Set(); // added subtree roots → mark/tag
   const pendingAttrs = new Set(); // class/style targets → re-process/tag
   let mutDebounceTimer = null, mutMaxWaitTimer = null, draining = false;
+
+  function clampThrottle(v) {
+    const n = Math.round(Number(v));
+    return Number.isFinite(n)
+      ? Math.min(THROTTLE_MAX, Math.max(THROTTLE_MIN, n))
+      : THROTTLE_DEFAULT;
+  }
+  // Trailing-edge debounce window (ms) — the configured re-analyse delay.
+  function mutDebounceMs() { return clampThrottle(state.throttleDelay); }
+  // Storm relief valve (ms) — scaled off the debounce, clamped to a sane band.
+  function mutMaxWaitMs() {
+    return Math.min(STORM_CEIL_MS, Math.max(STORM_FLOOR_MS, mutDebounceMs() * STORM_FACTOR));
+  }
 
   const nowMs = () =>
     (window.performance && performance.now) ? performance.now() : Date.now();
 
   function scheduleFlush() {
     if (mutDebounceTimer) clearTimeout(mutDebounceTimer);
-    mutDebounceTimer = setTimeout(flushMutations, MUT_DEBOUNCE_MS);
+    mutDebounceTimer = setTimeout(flushMutations, mutDebounceMs());
     // Guarantee a flush even while mutations never stop (the debounce keeps
     // resetting) — the max-wait timer is armed once and not reset.
-    if (mutMaxWaitTimer == null) mutMaxWaitTimer = setTimeout(flushMutations, MUT_MAX_WAIT_MS);
+    if (mutMaxWaitTimer == null) mutMaxWaitTimer = setTimeout(flushMutations, mutMaxWaitMs());
   }
 
   function clearFlushTimers() {
@@ -404,8 +436,14 @@
   // It is throttled the same way the mutation flush is: a debounce that waits
   // for the click's async render to settle, plus a hard max-wait so a stream of
   // rapid clicks still gets serviced regularly — never one heavy pass per click.
-  const INTERACT_SETTLE_MS = 250;    // run this long after the last click
-  const INTERACT_MAX_WAIT_MS = 1000; // …but at least this often under rapid clicks
+  // Both scale off the same user-configurable throttle delay (with their own
+  // floors) so dialing the knob up also calms click-driven re-evaluation —
+  // reevaluate() samples pixels, which is the other thing that can jank a slow
+  // phone when the user is rapidly interacting with a busy page.
+  const INTERACT_SETTLE_FLOOR_MS = 250;   // never run sooner than this after a click
+  const INTERACT_MAX_WAIT_FLOOR_MS = 1000; // …nor force a pass more often than this
+  function interactSettleMs() { return Math.max(INTERACT_SETTLE_FLOOR_MS, mutDebounceMs()); }
+  function interactMaxWaitMs() { return Math.max(INTERACT_MAX_WAIT_FLOOR_MS, mutDebounceMs() * 4); }
   let interactTimer = null, interactMaxTimer = null;
 
   function runInteractionRecheck() {
@@ -427,9 +465,9 @@
   function scheduleInteractionRecheck() {
     if (!state.lastEnabledRequest) return;
     if (interactTimer) clearTimeout(interactTimer);
-    interactTimer = setTimeout(runInteractionRecheck, INTERACT_SETTLE_MS);
+    interactTimer = setTimeout(runInteractionRecheck, interactSettleMs());
     if (interactMaxTimer == null) {
-      interactMaxTimer = setTimeout(runInteractionRecheck, INTERACT_MAX_WAIT_MS);
+      interactMaxTimer = setTimeout(runInteractionRecheck, interactMaxWaitMs());
     }
   }
 
@@ -592,6 +630,10 @@
     state.imageInversionDisabled = !!resp.imageInversionDisabled;
     setImageInversionDisabled(state.imageInversionDisabled && state.lastEnabledRequest);
     state.enhanceContrast = !!resp.enhanceContrast;
+    // Resolved per-site / global re-analyse throttle (drives the mutation
+    // debounce + max-wait + interaction recheck). Set before apply()/observer
+    // start so the very first flush already uses the configured delay.
+    state.throttleDelay = clampThrottle(resp.throttleDelay);
     if (!effectiveEnabled) { disableForPage(); return; }
     setEnhanceContrast(state.enhanceContrast);
     // If the per-site "Force natural images" flag changed while inversion

@@ -43,6 +43,23 @@ function sanitizeImportedData(data) {
     }
     return out;
   };
+  // Per-host throttle rules carry a numeric `ms` instead of a boolean `on`;
+  // storage.replaceState → normalizeState clamps it to the allowed range.
+  const sanitizeDelayList = (raw) => {
+    const out = [];
+    if (!Array.isArray(raw)) return out;
+    const seen = new Set();
+    for (const e of raw) {
+      if (!e || typeof e.domain !== "string") continue;
+      const domain = e.domain.trim().toLowerCase();
+      if (!domain || seen.has(domain)) continue;
+      seen.add(domain);
+      const entry = { domain, includeSubdomains: !!e.includeSubdomains };
+      if (e.ms != null) entry.ms = e.ms;
+      out.push(entry);
+    }
+    return out;
+  };
   const bool = (v, d) => (typeof v === "boolean" ? v : d);
   return {
     globalEnabled: bool(data.globalEnabled, DEFAULTS.globalEnabled),
@@ -51,9 +68,12 @@ function sanitizeImportedData(data) {
     globalDarkMode: bool(data.globalDarkMode, DEFAULTS.globalDarkMode),
     globalNaturalImages: bool(data.globalNaturalImages, DEFAULTS.globalNaturalImages),
     globalSoftGray: bool(data.globalSoftGray, DEFAULTS.globalSoftGray),
+    globalThrottleDelay: typeof data.globalThrottleDelay === "number"
+      ? data.globalThrottleDelay : DEFAULTS.globalThrottleDelay,
     disabledDomains: sanitizeRuleList(data.disabledDomains),
     noImageInversionDomains: sanitizeRuleList(data.noImageInversionDomains),
-    enhanceContrastDomains: sanitizeRuleList(data.enhanceContrastDomains)
+    enhanceContrastDomains: sanitizeRuleList(data.enhanceContrastDomains),
+    throttleDelayDomains: sanitizeDelayList(data.throttleDelayDomains)
   };
 }
 
@@ -79,6 +99,7 @@ async function handle(msg, sender) {
         enabled: res.enabled,
         imageInversionDisabled: !!res.imageInversionDisabled,
         enhanceContrast: !!res.enhanceContrast,
+        throttleDelay: res.throttleDelay,
         mode: res.mode,
         state: res.state
       };
@@ -135,6 +156,32 @@ async function handle(msg, sender) {
       await broadcastUpdate(next);
       return { ok: true, state: next };
     }
+    // ── Re-analyse throttle delay (perf knob) ────────────────────────────────
+    case "SET_GLOBAL_THROTTLE": {
+      // setState → normalizeState clamps to [THROTTLE_MIN, THROTTLE_MAX].
+      const next = await setState({ globalThrottleDelay: msg.ms });
+      await broadcastUpdate(next);
+      return { ok: true, state: next };
+    }
+    case "SET_THROTTLE_RULE": {
+      const host = (msg.hostname || "").toLowerCase();
+      if (!host) return { ok: false, error: "missing_hostname" };
+      const state = await getState();
+      const list = (state.throttleDelayDomains || []).filter(e => (e.domain || "").toLowerCase() !== host);
+      list.push({ domain: host, includeSubdomains: !!msg.includeSubdomains, ms: msg.ms });
+      const next = await setState({ throttleDelayDomains: list });
+      await broadcastUpdate(next);
+      return { ok: true, state: next };
+    }
+    case "REMOVE_THROTTLE_RULE": {
+      const host = (msg.hostname || "").toLowerCase();
+      if (!host) return { ok: false, error: "missing_hostname" };
+      const state = await getState();
+      const list = (state.throttleDelayDomains || []).filter(e => (e.domain || "").toLowerCase() !== host);
+      const next = await setState({ throttleDelayDomains: list });
+      await broadcastUpdate(next);
+      return { ok: true, state: next };
+    }
     // ── Legacy per-domain handlers (kept for back-compat) ────────────────────
     case "SET_DOMAIN_ENHANCE_CONTRAST": {
       const state = await getState();
@@ -185,13 +232,16 @@ async function handle(msg, sender) {
       const enhanceContrastDomains = (state.enhanceContrastDomains || []).filter(
         e => e.domain.toLowerCase() !== host
       );
-      const next = await setState({ disabledDomains, noImageInversionDomains, enhanceContrastDomains });
+      const throttleDelayDomains = (state.throttleDelayDomains || []).filter(
+        e => e.domain.toLowerCase() !== host
+      );
+      const next = await setState({ disabledDomains, noImageInversionDomains, enhanceContrastDomains, throttleDelayDomains });
       await broadcastUpdate(next);
       return { ok: true, state: next };
     }
     case "CLEAR_ALL_DOMAINS": {
       // Drop every per-site override; keep the global master switch as-is.
-      const next = await setState({ disabledDomains: [], noImageInversionDomains: [], enhanceContrastDomains: [] });
+      const next = await setState({ disabledDomains: [], noImageInversionDomains: [], enhanceContrastDomains: [], throttleDelayDomains: [] });
       await broadcastUpdate(next);
       return { ok: true, state: next };
     }
