@@ -3,7 +3,9 @@
 import { DEFAULTS, getState, setState, replaceState } from "./storage.js";
 import {
   shouldEnableForUrl,
-  registrableLike
+  registrableLike,
+  hostnameFromUrl,
+  resolveFeature
 } from "./matching.js";
 import { updateBadge } from "./badge.js";
 import { configureAction } from "./action.js";
@@ -60,6 +62,10 @@ function sanitizeImportedData(data) {
     }
     return out;
   };
+  // The toggle shortcut is re-validated by storage.normalizeState (which drops
+  // modifier-only / unqualified bindings), so we only pass the object through.
+  const sanitizeShortcut = (raw) =>
+    (raw && typeof raw === "object") ? raw : null;
   const bool = (v, d) => (typeof v === "boolean" ? v : d);
   return {
     globalEnabled: bool(data.globalEnabled, DEFAULTS.globalEnabled),
@@ -73,7 +79,8 @@ function sanitizeImportedData(data) {
     disabledDomains: sanitizeRuleList(data.disabledDomains),
     noImageInversionDomains: sanitizeRuleList(data.noImageInversionDomains),
     enhanceContrastDomains: sanitizeRuleList(data.enhanceContrastDomains),
-    throttleDelayDomains: sanitizeDelayList(data.throttleDelayDomains)
+    throttleDelayDomains: sanitizeDelayList(data.throttleDelayDomains),
+    toggleShortcut: sanitizeShortcut(data.toggleShortcut)
   };
 }
 
@@ -181,6 +188,30 @@ async function handle(msg, sender) {
       const next = await setState({ throttleDelayDomains: list });
       await broadcastUpdate(next);
       return { ok: true, state: next };
+    }
+    // ── Toggle shortcut (keyboard binding for per-site on/off) ───────────────
+    case "SET_TOGGLE_SHORTCUT": {
+      // setState → normalizeState validates the binding (a null / invalid
+      // payload clears it), so the Remove button just sends shortcut: null.
+      const next = await setState({ toggleShortcut: msg.shortcut || null });
+      await broadcastUpdate(next);
+      return { ok: true, state: next };
+    }
+    case "TOGGLE_DOMAIN_DARK": {
+      // Fired by the content script when the user presses the bound shortcut:
+      // flip this host's dark-mode rule (the per-site on/off the popup's "This
+      // host" checkbox writes). Preserve an existing rule's subdomain scope.
+      const host = hostnameFromUrl(msg.url || (sender.tab && sender.tab.url) || "");
+      if (!host) return { ok: false, error: "missing_hostname" };
+      const state = await getState();
+      const current = resolveFeature(host, state.disabledDomains, state.globalDarkMode);
+      const existing = (state.disabledDomains || [])
+        .find(e => (e.domain || "").toLowerCase() === host);
+      const includeSubdomains = existing ? !!existing.includeSubdomains : false;
+      const list = setRule(state.disabledDomains, host, includeSubdomains, !current);
+      const next = await setState({ disabledDomains: list });
+      await broadcastUpdate(next);
+      return { ok: true, state: next, on: !current };
     }
     // ── Legacy per-domain handlers (kept for back-compat) ────────────────────
     case "SET_DOMAIN_ENHANCE_CONTRAST": {

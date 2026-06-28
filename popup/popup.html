@@ -123,6 +123,22 @@
       </div>
       <div class="da-perf-desc">Higher = smoother on busy pages, slower to theme new content. Default 250 ms. Blank “this site” = inherit the global value.</div>
     </section>
+
+    <section class="da-sc" id="da-sc">
+      <div class="da-sc-head">
+        <svg class="da-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg>
+        <span class="da-sc-title">Toggle shortcut</span>
+        <button type="button" class="da-q" data-hint="Toggle shortcut: press this key combo on any page to turn dark mode on/off for that site. Click “Set shortcut”, then press the keys (Esc cancels). Needs Ctrl, Alt or AltGr plus another key.">?</button>
+      </div>
+      <div class="da-sc-row">
+        <div class="da-sc-display" id="da-sc-display" aria-live="polite">Not set</div>
+        <div class="da-sc-actions">
+          <button type="button" id="da-sc-record" class="da-btn">Set shortcut</button>
+          <button type="button" id="da-sc-remove" class="da-btn da-btn-danger" hidden>Remove</button>
+        </div>
+      </div>
+      <div class="da-sc-desc">Toggles dark mode on/off for the current site. Press it on any page. Needs Ctrl, Alt or AltGr plus another key; Esc cancels recording.</div>
+    </section>
   </div>
 
   <div class="da-tab-panel" data-panel="io">

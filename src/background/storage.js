@@ -54,8 +54,41 @@ export const DEFAULTS = {
   // every site; `throttleDelayDomains` holds per-host overrides, each entry:
   //   { domain, includeSubdomains, ms }
   globalThrottleDelay: THROTTLE_DEFAULT,
-  throttleDelayDomains: []
+  throttleDelayDomains: [],
+
+  // User-recorded keyboard shortcut that toggles dark mode on/off for the
+  // current site (flips its per-host `disabledDomains` rule). `null` when unset.
+  // Shape: { ctrl, alt, altGr, shift, meta, code, key } where `code` is the
+  // KeyboardEvent.code of the main (non-modifier) key and the booleans are the
+  // required modifier state. A valid binding needs at least one qualifying
+  // modifier (ctrl / alt / altGr / meta) plus a non-modifier main key.
+  toggleShortcut: null
 };
+
+// Codes that are themselves modifier keys — never valid as the shortcut's main
+// key. Keep in sync with the content script's matcher (controller.js).
+const MODIFIER_CODE_RE =
+  /^(?:Control|Alt|Shift|Meta)(?:Left|Right)$|^AltGraph$|^CapsLock$/;
+
+// Validate / coerce a recorded shortcut to the canonical shape, or null if it
+// isn't a usable binding (no main key, a modifier-only "main" key, or no
+// qualifying modifier held).
+function normalizeShortcut(sc) {
+  if (!sc || typeof sc !== "object") return null;
+  const code = typeof sc.code === "string" ? sc.code : "";
+  if (!code || MODIFIER_CODE_RE.test(code)) return null;
+  const out = {
+    ctrl: !!sc.ctrl,
+    alt: !!sc.alt,
+    altGr: !!sc.altGr,
+    shift: !!sc.shift,
+    meta: !!sc.meta,
+    code,
+    key: typeof sc.key === "string" ? sc.key : ""
+  };
+  if (!(out.ctrl || out.alt || out.altGr || out.meta)) return null;
+  return out;
+}
 
 const MODES = ["filter", "once", "toggle"];
 
@@ -113,6 +146,7 @@ function normalizeState(s) {
   out.enhanceContrastDomains = normalizeRules(out.enhanceContrastDomains, true);
   out.globalThrottleDelay = clampDelay(out.globalThrottleDelay);
   out.throttleDelayDomains = normalizeDelayRules(out.throttleDelayDomains);
+  out.toggleShortcut = normalizeShortcut(out.toggleShortcut);
   return out;
 }
 

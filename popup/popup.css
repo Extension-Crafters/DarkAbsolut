@@ -203,6 +203,42 @@ html, body {
 .da-perf-sub[hidden], .da-perf-sub input[hidden] { display: none; }
 .da-perf-desc { color: var(--fg-dim); font-size: 11px; margin-top: 6px; line-height: 1.4; }
 
+/* ── Toggle shortcut (keyboard binding) ───────────────────────────────── */
+.da-sc {
+  padding: 10px 14px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.da-sc-head { display: flex; align-items: center; gap: 7px; margin-bottom: 8px; }
+.da-sc-head .da-ico { color: var(--accent); }
+.da-sc-title { font-weight: 500; }
+.da-sc-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.da-sc-display {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 9px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.da-sc-display.is-empty { color: var(--fg-dim); }
+.da-sc-display.is-recording { border-color: var(--accent); color: var(--accent); }
+.da-sc-display.is-invalid { border-color: var(--danger); color: var(--danger); }
+.da-sc-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.da-btn-danger { color: var(--danger); }
+.da-btn-danger:hover { border-color: var(--danger); color: var(--danger); }
+.da-btn[hidden] { display: none; }
+.da-sc-desc { color: var(--fg-dim); font-size: 11px; margin-top: 6px; line-height: 1.4; }
+
 .da-tabs {
   display: flex;
   border-bottom: 1px solid var(--border);

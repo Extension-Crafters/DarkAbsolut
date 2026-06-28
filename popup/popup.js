@@ -94,6 +94,7 @@ async function refresh() {
   }
 
   refreshDelay(masterOff, restricted);
+  renderShortcut();
 }
 
 // Re-analyse throttle controls: the global default applies to every site; a
@@ -247,6 +248,133 @@ function showVersion() {
   } catch (_) { /* not in an extension context */ }
 }
 
+// ── Toggle shortcut: record a key combo to flip dark mode on the active host ─
+// Recording captures keydown on the popup. Esc cancels. A binding is accepted
+// only once the user presses a non-modifier key WHILE holding at least one
+// qualifying modifier (Ctrl, Alt, AltGr or Meta); the background re-validates.
+let recordingShortcut = false;
+
+function isModifierCode(code) {
+  return /^(?:Control|Alt|Shift|Meta)(?:Left|Right)$|^AltGraph$|^CapsLock$/.test(code);
+}
+
+// Human-readable modifier chips. AltGr is reported as Ctrl+Alt internally, so
+// show "AltGr" alone rather than the raw pair.
+function modifierParts(m) {
+  const parts = [];
+  if (m.altGr) parts.push("AltGr");
+  else { if (m.ctrl) parts.push("Ctrl"); if (m.alt) parts.push("Alt"); }
+  if (m.meta) parts.push("Meta");
+  if (m.shift) parts.push("Shift");
+  return parts;
+}
+
+// Label for the main key — prefer the layout-independent code so e.g. AltGr
+// dead-keys still read sensibly, falling back to the event's `key`.
+function keyLabel(sc) {
+  const code = sc.code || "";
+  let m;
+  if ((m = /^Key([A-Z])$/.exec(code))) return m[1];
+  if ((m = /^Digit([0-9])$/.exec(code))) return m[1];
+  if ((m = /^Numpad(.+)$/.exec(code))) return "Num " + m[1];
+  if (code === "Space") return "Space";
+  if (code) return code.replace(/^Arrow/, "");
+  const key = sc.key || "";
+  return key === " " ? "Space" : (key.length === 1 ? key.toUpperCase() : key);
+}
+
+function shortcutLabel(sc) {
+  if (!sc || !sc.code) return "";
+  return [...modifierParts(sc), keyLabel(sc)].join(" + ");
+}
+
+function renderShortcut() {
+  const display = $("da-sc-display");
+  const recordBtn = $("da-sc-record");
+  const removeBtn = $("da-sc-remove");
+  if (!display || !recordBtn || !removeBtn) return;
+  display.classList.remove("is-empty", "is-recording", "is-invalid");
+  if (recordingShortcut) {
+    display.classList.add("is-recording");
+    display.textContent = "Press keys…  (Esc to cancel)";
+    recordBtn.textContent = "Cancel";
+    removeBtn.hidden = true;
+    return;
+  }
+  const sc = state && state.toggleShortcut;
+  if (sc && sc.code) {
+    display.textContent = shortcutLabel(sc);
+    recordBtn.textContent = "Change";
+    removeBtn.hidden = false;
+  } else {
+    display.classList.add("is-empty");
+    display.textContent = "Not set";
+    recordBtn.textContent = "Set shortcut";
+    removeBtn.hidden = true;
+  }
+}
+
+function onRecordKeydown(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  const code = e.code || "";
+  if (code === "Escape") { stopRecording(); return; } // cancel — keep old binding
+  const mods = {
+    ctrl: e.ctrlKey, alt: e.altKey,
+    altGr: !!(e.getModifierState && e.getModifierState("AltGraph")),
+    meta: e.metaKey, shift: e.shiftKey
+  };
+  const display = $("da-sc-display");
+  if (isModifierCode(code)) {
+    // Still composing — preview the held modifiers and wait for a main key.
+    if (display) {
+      display.classList.remove("is-invalid");
+      display.classList.add("is-recording");
+      display.textContent = [...modifierParts(mods), "…"].join(" + ");
+    }
+    return;
+  }
+  if (!(mods.ctrl || mods.alt || mods.altGr || mods.meta)) {
+    if (display) {
+      display.classList.remove("is-recording");
+      display.classList.add("is-invalid");
+      display.textContent = "Need Ctrl, Alt or AltGr + another key";
+    }
+    return; // stay in recording mode so the user can try again
+  }
+  saveShortcut({ ...mods, code, key: e.key || "" });
+}
+
+function startRecording() {
+  recordingShortcut = true;
+  document.addEventListener("keydown", onRecordKeydown, true);
+  renderShortcut();
+  $("da-sc-record").blur(); // so Space/Enter don't re-fire the button
+}
+
+function stopRecording() {
+  recordingShortcut = false;
+  document.removeEventListener("keydown", onRecordKeydown, true);
+  renderShortcut();
+}
+
+async function saveShortcut(sc) {
+  recordingShortcut = false;
+  document.removeEventListener("keydown", onRecordKeydown, true);
+  await send({ type: "SET_TOGGLE_SHORTCUT", shortcut: sc });
+  await refresh();
+}
+
+function onRecordClick() {
+  if (recordingShortcut) stopRecording();
+  else startRecording();
+}
+
+async function onRemoveShortcut() {
+  await send({ type: "SET_TOGGLE_SHORTCUT", shortcut: null });
+  await refresh();
+}
+
 function onOpenIoPage() {
   // The popup closes as soon as a file picker / download dialog steals
   // focus, which interrupts import/export work. Hand off to a real page.
@@ -273,6 +401,8 @@ document.addEventListener("DOMContentLoaded", () => {
       const hint = $("da-hint");
       if (hint) hint.textContent = b.getAttribute("data-hint") || "";
     }));
+  $("da-sc-record").addEventListener("click", onRecordClick);
+  $("da-sc-remove").addEventListener("click", onRemoveShortcut);
   $("da-reload").addEventListener("click", onReload);
   document.querySelectorAll(".da-tab").forEach(b => {
     b.addEventListener("click", () => activateTab(b.dataset.tab));

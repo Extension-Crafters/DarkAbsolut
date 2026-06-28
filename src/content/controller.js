@@ -56,7 +56,11 @@
     // "Once" mode: the user clicked the toolbar button to dark-mode THIS page
     // load even though auto-apply says off. Sticky for the page so a later
     // STATE_UPDATED broadcast can't quietly revert it; resets on navigation.
-    forcedOnce: false
+    forcedOnce: false,
+    // User-recorded keyboard shortcut that toggles dark mode on/off for this
+    // site. Refreshed from settings on every evaluate; null = unbound. Read by
+    // the top-frame keydown handler installed at startup. See storage.js.
+    toggleShortcut: null
   };
   const state = DA.state;
 
@@ -596,6 +600,46 @@
     try { window.parent.postMessage({ __darkabsolut_req: true }, "*"); } catch (_) {}
   }
 
+  // ── Toggle shortcut (keyboard binding for per-site on/off) ───────────────
+  // The user records a combo in the popup (stored in settings); pressing it on
+  // any page flips dark mode on/off for the current site. We register one
+  // capturing keydown handler in the TOP frame only (so a focused iframe can't
+  // double-fire it and the host we toggle is always the main page's), and read
+  // the binding from state.toggleShortcut, which evaluateAndApply keeps fresh.
+
+  // Codes that are themselves modifier keys — never the shortcut's main key.
+  // Keep in sync with storage.js MODIFIER_CODE_RE.
+  const MODIFIER_CODE_RE =
+    /^(?:Control|Alt|Shift|Meta)(?:Left|Right)$|^AltGraph$|^CapsLock$/;
+
+  function shortcutMatches(sc, e) {
+    if (!sc || !sc.code || e.code !== sc.code) return false;
+    if (MODIFIER_CODE_RE.test(e.code)) return false;
+    const altGr = !!(e.getModifierState && e.getModifierState("AltGraph"));
+    return !!sc.ctrl === !!e.ctrlKey
+      && !!sc.alt === !!e.altKey
+      && !!sc.shift === !!e.shiftKey
+      && !!sc.meta === !!e.metaKey
+      && !!sc.altGr === altGr;
+  }
+
+  function onShortcutKeydown(e) {
+    if (e.repeat) return; // holding the combo must not toggle repeatedly
+    const sc = state.toggleShortcut;
+    if (!shortcutMatches(sc, e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    // Background flips this host's dark rule and broadcasts STATE_UPDATED,
+    // which re-runs evaluateAndApply here to apply/remove the theme.
+    try { chrome.runtime.sendMessage({ type: "TOGGLE_DOMAIN_DARK", url: location.href }); } catch (_) {}
+  }
+
+  function installShortcutHandler() {
+    if (state.shortcutHandlerInstalled || window !== window.top) return;
+    state.shortcutHandlerInstalled = true;
+    window.addEventListener("keydown", onShortcutKeydown, true);
+  }
+
   // ── Entry point ──────────────────────────────────────────────────────────
   async function evaluateAndApply() {
     // Frames embedded under an already-inverted ancestor must not invert
@@ -617,6 +661,10 @@
       });
     } catch (_) { return; }
     if (!resp || !resp.ok) return;
+    // Keep the bound shortcut current even on pages where we apply nothing
+    // (disabled host, master off) — the user must still be able to turn dark
+    // mode back ON for the site via the keyboard. Set before any early return.
+    state.toggleShortcut = (resp.state && resp.state.toggleShortcut) || null;
     // A one-time button click only forces the page on while we're still in
     // "once" mode; leaving that mode clears the forced state.
     if (resp.mode !== "once") state.forcedOnce = false;
@@ -725,5 +773,6 @@
     }
   });
 
+  installShortcutHandler();
   evaluateAndApply();
 })(DA);

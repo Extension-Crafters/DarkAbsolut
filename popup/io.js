@@ -1,7 +1,7 @@
 // DarkAbsolut - Import/Export full-page logic
 const { $, send } = DAPopup;
 
-const FALLBACK_STATE = { globalEnabled: true, mode: "filter", toggleOn: true, globalDarkMode: true, globalNaturalImages: false, globalSoftGray: false, globalThrottleDelay: 250, disabledDomains: [], throttleDelayDomains: [] };
+const FALLBACK_STATE = { globalEnabled: true, mode: "filter", toggleOn: true, globalDarkMode: true, globalNaturalImages: false, globalSoftGray: false, globalThrottleDelay: 250, disabledDomains: [], throttleDelayDomains: [], toggleShortcut: null };
 let currentState = { ...FALLBACK_STATE };
 
 async function loadState() {
@@ -52,7 +52,8 @@ async function onExport() {
       disabledDomains: arr(currentState.disabledDomains),
       noImageInversionDomains: arr(currentState.noImageInversionDomains),
       enhanceContrastDomains: arr(currentState.enhanceContrastDomains),
-      throttleDelayDomains: arr(currentState.throttleDelayDomains)
+      throttleDelayDomains: arr(currentState.throttleDelayDomains),
+      toggleShortcut: (currentState.toggleShortcut && typeof currentState.toggleShortcut === "object") ? currentState.toggleShortcut : null
     };
     const json = JSON.stringify(payload, null, 2);
     const blob = new Blob([json], { type: "application/json" });
@@ -162,7 +163,9 @@ async function onImportFile(e) {
         disabledDomains: v.kept,
         noImageInversionDomains: vNoImg.kept,
         enhanceContrastDomains: vHc.kept,
-        throttleDelayDomains: validateDelayEntries(data.throttleDelayDomains)
+        throttleDelayDomains: validateDelayEntries(data.throttleDelayDomains),
+        // Background re-validates the binding (drops invalid / modifier-only).
+        toggleShortcut: (data.toggleShortcut && typeof data.toggleShortcut === "object") ? data.toggleShortcut : null
       }
     });
     if (!r || !r.ok) throw new Error((r && r.error) || "Background rejected the import.");
