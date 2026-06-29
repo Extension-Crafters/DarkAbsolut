@@ -56,14 +56,21 @@ export const DEFAULTS = {
   globalThrottleDelay: THROTTLE_DEFAULT,
   throttleDelayDomains: [],
 
-  // User-recorded keyboard shortcut that toggles dark mode on/off for the
-  // current site (flips its per-host `disabledDomains` rule). `null` when unset.
-  // Shape: { ctrl, alt, altGr, shift, meta, code, key } where `code` is the
-  // KeyboardEvent.code of the main (non-modifier) key and the booleans are the
-  // required modifier state. A valid binding needs at least one qualifying
-  // modifier (ctrl / alt / altGr / meta) plus a non-modifier main key.
-  toggleShortcut: null
+  // User-recorded keyboard shortcuts. Each action holds a LIST of bindings so
+  // several combos can map to the same action. A binding is:
+  //   { ctrl, alt, altGr, shift, meta, code, key }
+  // where `code` is the KeyboardEvent.code of the main (non-modifier) key and
+  // the booleans are the required modifier state. A valid binding needs at
+  // least one qualifying modifier (ctrl / alt / altGr / meta) plus a
+  // non-modifier main key. Actions:
+  //   toggleDomain — flip dark mode on/off for the current site (its per-host
+  //                  `disabledDomains` rule).
+  //   toggleGlobal — flip the master kill switch (`globalEnabled`) for all sites.
+  shortcuts: { toggleDomain: [], toggleGlobal: [] }
 };
+
+// The recognised shortcut actions (keys of DEFAULTS.shortcuts).
+export const SHORTCUT_ACTIONS = ["toggleDomain", "toggleGlobal"];
 
 // Codes that are themselves modifier keys — never valid as the shortcut's main
 // key. Keep in sync with the content script's matcher (controller.js).
@@ -88,6 +95,41 @@ function normalizeShortcut(sc) {
   };
   if (!(out.ctrl || out.alt || out.altGr || out.meta)) return null;
   return out;
+}
+
+// Stable signature for de-duplicating bindings within a list.
+function shortcutSig(sc) {
+  return [sc.ctrl, sc.alt, sc.altGr, sc.shift, sc.meta, sc.code].join("|");
+}
+
+// Validate a list of bindings: drop invalid ones and exact duplicates.
+function normalizeShortcutList(list) {
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const e of list) {
+    const sc = normalizeShortcut(e);
+    if (!sc) continue;
+    const sig = shortcutSig(sc);
+    if (seen.has(sig)) continue;
+    seen.add(sig);
+    out.push(sc);
+  }
+  return out;
+}
+
+// Validate the per-action shortcut map. `legacySingle` is the pre-multi-binding
+// `toggleShortcut` (a single object) — folded into toggleDomain when present and
+// that list is otherwise empty, so old saved settings keep their binding.
+function normalizeShortcuts(obj, legacySingle) {
+  const src = (obj && typeof obj === "object") ? obj : {};
+  const result = {};
+  for (const action of SHORTCUT_ACTIONS) result[action] = normalizeShortcutList(src[action]);
+  if (!result.toggleDomain.length) {
+    const legacy = normalizeShortcut(legacySingle);
+    if (legacy) result.toggleDomain.push(legacy);
+  }
+  return result;
 }
 
 const MODES = ["filter", "once", "toggle"];
@@ -146,13 +188,19 @@ function normalizeState(s) {
   out.enhanceContrastDomains = normalizeRules(out.enhanceContrastDomains, true);
   out.globalThrottleDelay = clampDelay(out.globalThrottleDelay);
   out.throttleDelayDomains = normalizeDelayRules(out.throttleDelayDomains);
-  out.toggleShortcut = normalizeShortcut(out.toggleShortcut);
+  out.shortcuts = normalizeShortcuts(out.shortcuts, out.toggleShortcut);
+  delete out.toggleShortcut; // legacy single-binding key, migrated above
   return out;
 }
 
 export async function getState() {
-  const data = await chrome.storage.local.get(DEFAULTS);
-  return normalizeState(data);
+  // Also read the legacy single-binding `toggleShortcut` so it can be migrated
+  // into shortcuts.toggleDomain (and then removed) for pre-multi-binding saves.
+  const data = await chrome.storage.local.get({ ...DEFAULTS, toggleShortcut: null });
+  const hadLegacy = data.toggleShortcut != null;
+  const next = normalizeState(data);
+  if (hadLegacy) { try { await chrome.storage.local.remove("toggleShortcut"); } catch (_) {} }
+  return next;
 }
 
 export async function setState(patch) {

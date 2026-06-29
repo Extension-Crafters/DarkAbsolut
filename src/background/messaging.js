@@ -1,6 +1,6 @@
 // DarkAbsolut — message router between popup / content scripts and storage.
 
-import { DEFAULTS, getState, setState, replaceState } from "./storage.js";
+import { DEFAULTS, SHORTCUT_ACTIONS, getState, setState, replaceState } from "./storage.js";
 import {
   shouldEnableForUrl,
   registrableLike,
@@ -62,10 +62,17 @@ function sanitizeImportedData(data) {
     }
     return out;
   };
-  // The toggle shortcut is re-validated by storage.normalizeState (which drops
-  // modifier-only / unqualified bindings), so we only pass the object through.
-  const sanitizeShortcut = (raw) =>
-    (raw && typeof raw === "object") ? raw : null;
+  // Shortcuts are re-validated by storage.normalizeState (which drops invalid /
+  // duplicate bindings and folds a legacy single `toggleShortcut`), so we just
+  // pass the per-action arrays through, defaulting to empty lists.
+  const sanitizeShortcuts = (raw) => {
+    const src = (raw && typeof raw === "object") ? raw : {};
+    const out = {};
+    for (const action of SHORTCUT_ACTIONS) {
+      out[action] = Array.isArray(src[action]) ? src[action] : [];
+    }
+    return out;
+  };
   const bool = (v, d) => (typeof v === "boolean" ? v : d);
   return {
     globalEnabled: bool(data.globalEnabled, DEFAULTS.globalEnabled),
@@ -80,7 +87,11 @@ function sanitizeImportedData(data) {
     noImageInversionDomains: sanitizeRuleList(data.noImageInversionDomains),
     enhanceContrastDomains: sanitizeRuleList(data.enhanceContrastDomains),
     throttleDelayDomains: sanitizeDelayList(data.throttleDelayDomains),
-    toggleShortcut: sanitizeShortcut(data.toggleShortcut)
+    shortcuts: sanitizeShortcuts(data.shortcuts),
+    // Legacy single binding — normalizeState folds it into toggleDomain then
+    // drops it, so importing an old export keeps its shortcut.
+    toggleShortcut: (data.toggleShortcut && typeof data.toggleShortcut === "object")
+      ? data.toggleShortcut : null
   };
 }
 
@@ -189,13 +200,35 @@ async function handle(msg, sender) {
       await broadcastUpdate(next);
       return { ok: true, state: next };
     }
-    // ── Toggle shortcut (keyboard binding for per-site on/off) ───────────────
-    case "SET_TOGGLE_SHORTCUT": {
-      // setState → normalizeState validates the binding (a null / invalid
-      // payload clears it), so the Remove button just sends shortcut: null.
-      const next = await setState({ toggleShortcut: msg.shortcut || null });
+    // ── Keyboard shortcuts (multi-binding, per action) ───────────────────────
+    case "ADD_SHORTCUT": {
+      if (!SHORTCUT_ACTIONS.includes(msg.action)) return { ok: false, error: "unknown_action" };
+      const state = await getState();
+      // setState → normalizeState validates + de-dupes, so pushing an invalid
+      // or duplicate binding is harmlessly dropped.
+      const list = (state.shortcuts[msg.action] || []).concat([msg.shortcut || {}]);
+      const next = await setState({ shortcuts: { ...state.shortcuts, [msg.action]: list } });
       await broadcastUpdate(next);
       return { ok: true, state: next };
+    }
+    case "REMOVE_SHORTCUT": {
+      if (!SHORTCUT_ACTIONS.includes(msg.action)) return { ok: false, error: "unknown_action" };
+      const state = await getState();
+      const list = (state.shortcuts[msg.action] || []).slice();
+      const idx = Number(msg.index);
+      if (!Number.isInteger(idx) || idx < 0 || idx >= list.length) return { ok: false, error: "bad_index" };
+      list.splice(idx, 1);
+      const next = await setState({ shortcuts: { ...state.shortcuts, [msg.action]: list } });
+      await broadcastUpdate(next);
+      return { ok: true, state: next };
+    }
+    case "TOGGLE_GLOBAL_ENABLED": {
+      // Fired by the content script's global on/off shortcut: flip the master
+      // kill switch for every site.
+      const cur = await getState();
+      const next = await setState({ globalEnabled: !cur.globalEnabled });
+      await broadcastUpdate(next);
+      return { ok: true, state: next, on: !cur.globalEnabled };
     }
     case "TOGGLE_DOMAIN_DARK": {
       // Fired by the content script when the user presses the bound shortcut:

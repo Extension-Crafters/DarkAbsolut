@@ -127,17 +127,24 @@
     <section class="da-sc" id="da-sc">
       <div class="da-sc-head">
         <svg class="da-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg>
-        <span class="da-sc-title">Toggle shortcut</span>
-        <button type="button" class="da-q" data-hint="Toggle shortcut: press this key combo on any page to turn dark mode on/off for that site. Click “Set shortcut”, then press the keys (Esc cancels). Needs Ctrl, Alt or AltGr plus another key.">?</button>
+        <span class="da-sc-title">Keyboard shortcuts</span>
+        <button type="button" class="da-q" data-hint="Keyboard shortcuts: press a bound combo on any page to run its action. Click “Add shortcut”, then press the keys (Esc cancels). Needs Ctrl, Alt or AltGr plus another key. Each action can have several bindings.">?</button>
       </div>
-      <div class="da-sc-row">
-        <div class="da-sc-display" id="da-sc-display" aria-live="polite">Not set</div>
-        <div class="da-sc-actions">
-          <button type="button" id="da-sc-record" class="da-btn">Set shortcut</button>
-          <button type="button" id="da-sc-remove" class="da-btn da-btn-danger" hidden>Remove</button>
-        </div>
+
+      <div class="da-sc-group">
+        <div class="da-sc-grouptitle">Current site on/off</div>
+        <div class="da-sc-list" id="da-sc-list-domain" aria-live="polite"></div>
+        <button type="button" id="da-sc-add-domain" class="da-btn da-sc-add">Add shortcut</button>
       </div>
-      <div class="da-sc-desc">Toggles dark mode on/off for the current site. Press it on any page. Needs Ctrl, Alt or AltGr plus another key; Esc cancels recording.</div>
+
+      <div class="da-sc-group">
+        <div class="da-sc-grouptitle">Global on/off (all sites)</div>
+        <div class="da-sc-list" id="da-sc-list-global" aria-live="polite"></div>
+        <button type="button" id="da-sc-add-global" class="da-btn da-sc-add">Add shortcut</button>
+      </div>
+
+      <div class="da-sc-status" id="da-sc-status" aria-live="polite"></div>
+      <div class="da-sc-desc">Press a shortcut on any page. Needs Ctrl, Alt or AltGr plus another key; Esc cancels recording. Current-site toggles dark mode for the active domain; global is the master switch.</div>
     </section>
   </div>
 

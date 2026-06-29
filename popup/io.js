@@ -1,7 +1,7 @@
 // DarkAbsolut - Import/Export full-page logic
 const { $, send } = DAPopup;
 
-const FALLBACK_STATE = { globalEnabled: true, mode: "filter", toggleOn: true, globalDarkMode: true, globalNaturalImages: false, globalSoftGray: false, globalThrottleDelay: 250, disabledDomains: [], throttleDelayDomains: [], toggleShortcut: null };
+const FALLBACK_STATE = { globalEnabled: true, mode: "filter", toggleOn: true, globalDarkMode: true, globalNaturalImages: false, globalSoftGray: false, globalThrottleDelay: 250, disabledDomains: [], throttleDelayDomains: [], shortcuts: { toggleDomain: [], toggleGlobal: [] } };
 let currentState = { ...FALLBACK_STATE };
 
 async function loadState() {
@@ -53,7 +53,9 @@ async function onExport() {
       noImageInversionDomains: arr(currentState.noImageInversionDomains),
       enhanceContrastDomains: arr(currentState.enhanceContrastDomains),
       throttleDelayDomains: arr(currentState.throttleDelayDomains),
-      toggleShortcut: (currentState.toggleShortcut && typeof currentState.toggleShortcut === "object") ? currentState.toggleShortcut : null
+      shortcuts: (currentState.shortcuts && typeof currentState.shortcuts === "object")
+        ? { toggleDomain: arr(currentState.shortcuts.toggleDomain), toggleGlobal: arr(currentState.shortcuts.toggleGlobal) }
+        : { toggleDomain: [], toggleGlobal: [] }
     };
     const json = JSON.stringify(payload, null, 2);
     const blob = new Blob([json], { type: "application/json" });
@@ -164,8 +166,10 @@ async function onImportFile(e) {
         noImageInversionDomains: vNoImg.kept,
         enhanceContrastDomains: vHc.kept,
         throttleDelayDomains: validateDelayEntries(data.throttleDelayDomains),
-        // Background re-validates the binding (drops invalid / modifier-only).
-        toggleShortcut: (data.toggleShortcut && typeof data.toggleShortcut === "object") ? data.toggleShortcut : null
+        // Background re-validates bindings (drops invalid / duplicates) and
+        // migrates a legacy single `toggleShortcut` into toggleDomain.
+        shortcuts: (data.shortcuts && typeof data.shortcuts === "object") ? data.shortcuts : undefined,
+        toggleShortcut: (data.toggleShortcut && typeof data.toggleShortcut === "object") ? data.toggleShortcut : undefined
       }
     });
     if (!r || !r.ok) throw new Error((r && r.error) || "Background rejected the import.");

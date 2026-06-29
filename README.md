@@ -67,9 +67,10 @@ switch and per-domain/subdomain disable.
   - Global on/off (kill switch).
   - Disable on the current domain.
   - Optional "include subdomains".
-  - **Toggle shortcut**: record a keyboard combo (Ctrl/Alt/AltGr + another key;
-    Esc cancels recording) that turns dark mode on/off for the current site from
-    any page; removable from the same panel.
+  - **Keyboard shortcuts**: record combos (Ctrl/Alt/AltGr + another key; Esc
+    cancels recording) for two actions — turn dark mode on/off for the current
+    site, and flip the global master switch — from any page. Each action can
+    hold several bindings; each is removable from the same panel.
   - Reload-tab convenience button.
 - **Cross-browser**: the committed `manifest.json` targets Chrome/Chromium
   (`background.service_worker`). Chrome rejects `background.scripts` and Firefox

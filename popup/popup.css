@@ -203,7 +203,7 @@ html, body {
 .da-perf-sub[hidden], .da-perf-sub input[hidden] { display: none; }
 .da-perf-desc { color: var(--fg-dim); font-size: 11px; margin-top: 6px; line-height: 1.4; }
 
-/* ── Toggle shortcut (keyboard binding) ───────────────────────────────── */
+/* ── Keyboard shortcuts (multi-binding, per action) ───────────────────── */
 .da-sc {
   padding: 10px 14px 12px;
   border-bottom: 1px solid var(--border);
@@ -211,32 +211,54 @@ html, body {
 .da-sc-head { display: flex; align-items: center; gap: 7px; margin-bottom: 8px; }
 .da-sc-head .da-ico { color: var(--accent); }
 .da-sc-title { font-weight: 500; }
-.da-sc-row {
+.da-sc-group { margin-bottom: 10px; }
+.da-sc-grouptitle { font-size: 11px; color: var(--fg-dim); margin-bottom: 5px; }
+.da-sc-list {
   display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+  min-height: 20px;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
 }
-.da-sc-display {
-  flex: 1;
-  min-width: 0;
+.da-sc-empty { color: var(--fg-dim); font-size: 12px; font-style: italic; }
+.da-sc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   background: var(--bg-2);
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 6px 9px;
+  padding: 3px 4px 3px 8px;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
-.da-sc-display.is-empty { color: var(--fg-dim); }
-.da-sc-display.is-recording { border-color: var(--accent); color: var(--accent); }
-.da-sc-display.is-invalid { border-color: var(--danger); color: var(--danger); }
-.da-sc-actions { display: flex; gap: 6px; flex-shrink: 0; }
-.da-btn-danger { color: var(--danger); }
-.da-btn-danger:hover { border-color: var(--danger); color: var(--danger); }
-.da-btn[hidden] { display: none; }
+.da-sc-chip.is-recording {
+  border-color: var(--accent);
+  color: var(--accent);
+  padding: 3px 8px;
+  font-style: italic;
+}
+.da-sc-chip-x {
+  border: 0;
+  background: transparent;
+  color: var(--fg-dim);
+  font: 600 14px/1 inherit;
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.da-sc-chip-x:hover { color: var(--danger); background: rgba(240,128,128,.12); }
+.da-sc-add { padding: 4px 9px; font-size: 12px; }
+.da-sc-add.is-recording { border-color: var(--accent); color: var(--accent); }
+.da-sc-status { font-size: 11px; color: var(--accent); min-height: 14px; margin-top: 2px; }
+.da-sc-status.is-invalid { color: var(--danger); }
+.da-sc-status:empty { min-height: 0; }
 .da-sc-desc { color: var(--fg-dim); font-size: 11px; margin-top: 6px; line-height: 1.4; }
 
 .da-tabs {

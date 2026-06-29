@@ -1,11 +1,15 @@
-// Tests for the per-site toggle keyboard shortcut.
+// Tests for the keyboard-shortcut feature (multi-binding, two actions).
 //
-//   * Popup recording UI: Esc cancels; a non-modifier alone is rejected; a
-//     qualifying combo (Ctrl/Alt/AltGr + key) is saved and rendered; Remove
-//     clears the binding.
-//   * Background TOGGLE_DOMAIN_DARK flips the active host's dark rule.
-//   * End-to-end: pressing the bound combo on a real page toggles dark mode
-//     on/off for that site.
+//   * Popup recording UI: two action groups (current-site + global), each with
+//     an "Add shortcut" recorder. Esc cancels; a non-modifier alone is
+//     rejected; a qualifying combo is saved as a chip; several bindings per
+//     action; the × button removes one.
+//   * Background: ADD_SHORTCUT / REMOVE_SHORTCUT (validation + de-dupe),
+//     TOGGLE_DOMAIN_DARK flips the active host, TOGGLE_GLOBAL_ENABLED flips the
+//     master switch.
+//   * End-to-end: pressing a bound combo toggles the live page (per-site) and
+//     the master switch (global).
+//   * Import/export round-trips the bindings (incl. legacy single migration).
 //
 //   node tests/test-shortcut.js
 'use strict';
@@ -27,6 +31,11 @@ function assert(name, cond, detail) {
   console.log(`  [${cond ? 'PASS' : 'FAIL'}] ${name}${detail ? '  — ' + detail : ''}`);
 }
 
+// Dispatch a synthetic keydown into the popup's capture listener.
+function keydown(opts) {
+  return `document.dispatchEvent(new KeyboardEvent('keydown', ${JSON.stringify(opts)}))`;
+}
+
 (async () => {
   const server = await new Promise(resolve => {
     const s = http.createServer((req, res) => {
@@ -46,15 +55,15 @@ function assert(name, cond, detail) {
     if (!w) { try { w = await context.waitForEvent('serviceworker', { timeout: 10000 }); } catch (_) {} }
     const extId = new URL(w.url()).host;
 
-    // Control page for sending runtime messages from an extension context.
     const ctl = await context.newPage();
     await ctl.goto(`chrome-extension://${extId}/popup/io.html`, { waitUntil: 'load' });
     const send = (msg) => ctl.evaluate(m => new Promise(r => chrome.runtime.sendMessage(m, r)), msg);
     const enabledFor = async (url) => (await send({ type: 'GET_STATE_FOR_URL', url })).enabled;
-    const storedShortcut = () => w.evaluate(() => chrome.storage.local.get('toggleShortcut').then(s => s.toggleShortcut));
+    const stored = () => w.evaluate(() => chrome.storage.local.get('shortcuts').then(s => s.shortcuts || {}));
+    const fullState = async () => (await send({ type: 'GET_FULL_STATE' })).state;
 
     // ── Popup recording UI ───────────────────────────────────────────────────
-    await send({ type: 'SET_TOGGLE_SHORTCUT', shortcut: null });
+    await send({ type: 'IMPORT_SETTINGS', data: { globalEnabled: true } }); // clears shortcuts
     const pop = await context.newPage();
     const popErrors = [];
     pop.on('pageerror', e => popErrors.push(String(e && e.message || e)));
@@ -62,77 +71,93 @@ function assert(name, cond, detail) {
     await pop.waitForTimeout(400);
 
     const ui0 = await pop.evaluate(() => ({
-      hasDisplay: !!document.getElementById('da-sc-display'),
-      hasRecord: !!document.getElementById('da-sc-record'),
-      removeHidden: document.getElementById('da-sc-remove').hidden,
-      display: document.getElementById('da-sc-display').textContent.trim(),
-      recordLabel: document.getElementById('da-sc-record').textContent.trim(),
+      lists: !!document.getElementById('da-sc-list-domain') && !!document.getElementById('da-sc-list-global'),
+      adds: !!document.getElementById('da-sc-add-domain') && !!document.getElementById('da-sc-add-global'),
+      domainEmpty: document.getElementById('da-sc-list-domain').textContent.trim(),
+      globalEmpty: document.getElementById('da-sc-list-global').textContent.trim(),
     }));
     assert('popup loads with no JS errors', popErrors.length === 0, popErrors.join(' | '));
-    assert('shortcut UI present (display + record button)', ui0.hasDisplay && ui0.hasRecord);
-    assert('unset → "Not set", Remove hidden', /not set/i.test(ui0.display) && ui0.removeHidden, `${ui0.display} removeHidden=${ui0.removeHidden}`);
+    assert('two action groups (lists + add buttons) present', ui0.lists && ui0.adds);
+    assert('both lists start at "None"', /none/i.test(ui0.domainEmpty) && /none/i.test(ui0.globalEmpty), `${ui0.domainEmpty}/${ui0.globalEmpty}`);
 
-    // Start recording, then Escape cancels.
-    await pop.evaluate(() => document.getElementById('da-sc-record').click());
-    const recState = await pop.evaluate(() => ({
-      recording: document.getElementById('da-sc-display').classList.contains('is-recording'),
-      label: document.getElementById('da-sc-record').textContent.trim(),
+    // Start recording the current-site action, then Esc cancels.
+    await pop.evaluate(() => document.getElementById('da-sc-add-domain').click());
+    const rec = await pop.evaluate(() => ({
+      label: document.getElementById('da-sc-add-domain').textContent.trim(),
+      list: document.getElementById('da-sc-list-domain').textContent,
     }));
-    assert('clicking record enters recording mode', recState.recording && /cancel/i.test(recState.label), JSON.stringify(recState));
-    await pop.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true })));
+    assert('Add enters recording mode (chip + Cancel)', /cancel/i.test(rec.label) && /press keys/i.test(rec.list), JSON.stringify(rec));
+    await pop.evaluate(keydown({ code: 'Escape', key: 'Escape', bubbles: true }));
     await pop.waitForTimeout(50);
     const afterEsc = await pop.evaluate(() => ({
-      display: document.getElementById('da-sc-display').textContent.trim(),
-      recording: document.getElementById('da-sc-display').classList.contains('is-recording'),
+      label: document.getElementById('da-sc-add-domain').textContent.trim(),
+      list: document.getElementById('da-sc-list-domain').textContent.trim(),
     }));
-    assert('Esc cancels recording (back to "Not set")', /not set/i.test(afterEsc.display) && !afterEsc.recording, JSON.stringify(afterEsc));
-    assert('Esc cancel saved nothing', (await storedShortcut()) == null);
+    assert('Esc cancels recording (back to None / Add)', /none/i.test(afterEsc.list) && /add/i.test(afterEsc.label), JSON.stringify(afterEsc));
+    assert('Esc cancel saved nothing', !((await stored()).toggleDomain || []).length);
 
-    // Record again: a non-modifier alone is rejected (stays recording).
-    await pop.evaluate(() => document.getElementById('da-sc-record').click());
-    await pop.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyD', key: 'd', bubbles: true })));
+    // Non-modifier alone is rejected.
+    await pop.evaluate(() => document.getElementById('da-sc-add-domain').click());
+    await pop.evaluate(keydown({ code: 'KeyD', key: 'd', bubbles: true }));
     await pop.waitForTimeout(50);
-    const afterBare = await pop.evaluate(() => ({
-      invalid: document.getElementById('da-sc-display').classList.contains('is-invalid'),
-      stillRecording: document.getElementById('da-sc-record').textContent.trim(),
+    const bare = await pop.evaluate(() => ({
+      invalid: document.getElementById('da-sc-status').classList.contains('is-invalid'),
+      label: document.getElementById('da-sc-add-domain').textContent.trim(),
     }));
-    assert('non-modifier alone is rejected', afterBare.invalid && /cancel/i.test(afterBare.stillRecording), JSON.stringify(afterBare));
-    assert('rejected combo saved nothing', (await storedShortcut()) == null);
+    assert('non-modifier alone rejected (still recording)', bare.invalid && /cancel/i.test(bare.label), JSON.stringify(bare));
 
-    // Now a qualifying combo (Ctrl+Alt+D) is accepted and rendered.
-    await pop.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown',
-      { code: 'KeyD', key: 'd', ctrlKey: true, altKey: true, bubbles: true })));
+    // Qualifying combo Ctrl+Alt+D is accepted and chipped.
+    await pop.evaluate(keydown({ code: 'KeyD', key: 'd', ctrlKey: true, altKey: true, bubbles: true }));
     await pop.waitForTimeout(450);
-    const saved = await storedShortcut();
-    const afterSave = await pop.evaluate(() => ({
-      display: document.getElementById('da-sc-display').textContent.trim(),
-      removeHidden: document.getElementById('da-sc-remove').hidden,
-      recordLabel: document.getElementById('da-sc-record').textContent.trim(),
-    }));
-    assert('Ctrl+Alt+D saved to storage', !!saved && saved.code === 'KeyD' && saved.ctrl === true && saved.alt === true, JSON.stringify(saved));
-    assert('saved combo rendered as "Ctrl + Alt + D"', afterSave.display === 'Ctrl + Alt + D', afterSave.display);
-    assert('after save: Remove shown, button says Change', !afterSave.removeHidden && /change/i.test(afterSave.recordLabel), JSON.stringify(afterSave));
+    let sc = await stored();
+    const chip1 = await pop.evaluate(() => {
+      const c = document.querySelector('#da-sc-list-domain .da-sc-chip');
+      return c ? c.textContent.replace('×', '').trim() : '';
+    });
+    assert('Ctrl+Alt+D saved to toggleDomain', (sc.toggleDomain || []).length === 1 && sc.toggleDomain[0].code === 'KeyD', JSON.stringify(sc.toggleDomain));
+    assert('binding rendered as chip "Ctrl + Alt + D"', chip1 === 'Ctrl + Alt + D', chip1);
 
-    // Remove clears the binding.
-    await pop.evaluate(() => document.getElementById('da-sc-remove').click());
+    // A SECOND binding for the same action (multi-binding).
+    await pop.evaluate(() => document.getElementById('da-sc-add-domain').click());
+    await pop.evaluate(keydown({ code: 'KeyK', key: 'k', ctrlKey: true, altKey: true, bubbles: true }));
+    await pop.waitForTimeout(450);
+    sc = await stored();
+    const chipCount = await pop.evaluate(() => document.querySelectorAll('#da-sc-list-domain .da-sc-chip').length);
+    assert('second binding added (2 bindings, 2 chips)', (sc.toggleDomain || []).length === 2 && chipCount === 2, `len=${(sc.toggleDomain||[]).length} chips=${chipCount}`);
+
+    // A binding for the GLOBAL action.
+    await pop.evaluate(() => document.getElementById('da-sc-add-global').click());
+    await pop.evaluate(keydown({ code: 'KeyG', key: 'g', ctrlKey: true, altKey: true, bubbles: true }));
+    await pop.waitForTimeout(450);
+    sc = await stored();
+    assert('global binding saved to toggleGlobal', (sc.toggleGlobal || []).length === 1 && sc.toggleGlobal[0].code === 'KeyG', JSON.stringify(sc.toggleGlobal));
+
+    // Remove the first current-site binding via its × button.
+    await pop.evaluate(() => document.querySelector('#da-sc-list-domain .da-sc-chip .da-sc-chip-x').click());
     await pop.waitForTimeout(300);
-    assert('Remove clears the binding in storage', (await storedShortcut()) == null);
-    const afterRemove = await pop.evaluate(() => document.getElementById('da-sc-display').textContent.trim());
-    assert('Remove → display back to "Not set"', /not set/i.test(afterRemove), afterRemove);
+    sc = await stored();
+    assert('× removes one binding (KeyK remains)', (sc.toggleDomain || []).length === 1 && sc.toggleDomain[0].code === 'KeyK', JSON.stringify(sc.toggleDomain));
     await pop.close();
 
-    // ── Background TOGGLE_DOMAIN_DARK flips the host's dark rule ──────────────
-    await send({ type: 'IMPORT_SETTINGS', data: { globalEnabled: true } }); // defaults: filter, dark global on
+    // ── Background message validation ────────────────────────────────────────
+    await send({ type: 'IMPORT_SETTINGS', data: { globalEnabled: true } });
+    assert('ADD_SHORTCUT rejects unknown action', !(await send({ type: 'ADD_SHORTCUT', action: 'nope', shortcut: { ctrl: true, code: 'KeyD' } })).ok);
+    await send({ type: 'ADD_SHORTCUT', action: 'toggleDomain', shortcut: { ctrl: true, alt: true, code: 'KeyD', key: 'd' } });
+    await send({ type: 'ADD_SHORTCUT', action: 'toggleDomain', shortcut: { ctrl: true, alt: true, code: 'KeyD', key: 'd' } }); // dup
+    assert('duplicate binding de-duped to one', ((await stored()).toggleDomain || []).length === 1);
+    assert('REMOVE_SHORTCUT rejects bad index', !(await send({ type: 'REMOVE_SHORTCUT', action: 'toggleDomain', index: 9 })).ok);
+
+    // ── TOGGLE_DOMAIN_DARK flips the active host's dark rule ──────────────────
+    await send({ type: 'IMPORT_SETTINGS', data: { globalEnabled: true } });
     const HOST = 'https://shortcut-ex.com/';
     assert('fresh host enabled (global dark on)', await enabledFor(HOST));
     let r = await send({ type: 'TOGGLE_DOMAIN_DARK', url: HOST });
-    assert('TOGGLE_DOMAIN_DARK off → reports on:false', r && r.ok && r.on === false, JSON.stringify(r));
+    assert('TOGGLE_DOMAIN_DARK → off (on:false)', r && r.ok && r.on === false, JSON.stringify(r && { ok: r.ok, on: r.on }));
     assert('host now disabled', !(await enabledFor(HOST)));
     r = await send({ type: 'TOGGLE_DOMAIN_DARK', url: HOST });
-    assert('TOGGLE_DOMAIN_DARK on → reports on:true', r && r.ok && r.on === true, JSON.stringify(r));
+    assert('TOGGLE_DOMAIN_DARK → on (on:true)', r && r.ok && r.on === true);
     assert('host enabled again', await enabledFor(HOST));
 
-    // Toggling preserves an existing rule's subdomain scope.
     await send({ type: 'CLEAR_ALL_DOMAINS' });
     await send({ type: 'SET_FEATURE_RULE', feature: 'dark', hostname: 'sub-ex.com', includeSubdomains: true, on: true });
     await send({ type: 'TOGGLE_DOMAIN_DARK', url: 'https://sub-ex.com/' });
@@ -142,62 +167,77 @@ function assert(name, cond, detail) {
     });
     assert('toggle flips `on` but keeps includeSubdomains', subRule && subRule.on === false && subRule.includeSubdomains === true, JSON.stringify(subRule));
 
-    // ── End-to-end: pressing the combo toggles the live page ─────────────────
+    // ── TOGGLE_GLOBAL_ENABLED flips the master switch ────────────────────────
     await send({ type: 'IMPORT_SETTINGS', data: { globalEnabled: true } });
-    await send({ type: 'SET_TOGGLE_SHORTCUT', shortcut: { ctrl: true, alt: true, altGr: false, shift: false, meta: false, code: 'KeyD', key: 'd' } });
+    r = await send({ type: 'TOGGLE_GLOBAL_ENABLED' });
+    assert('TOGGLE_GLOBAL_ENABLED → off', r && r.ok && r.on === false && (await fullState()).globalEnabled === false);
+    r = await send({ type: 'TOGGLE_GLOBAL_ENABLED' });
+    assert('TOGGLE_GLOBAL_ENABLED → on', r && r.ok && r.on === true && (await fullState()).globalEnabled === true);
 
+    // ── End-to-end: per-site combo toggles the live page ─────────────────────
+    await send({ type: 'IMPORT_SETTINGS', data: { globalEnabled: true } });
+    await send({ type: 'ADD_SHORTCUT', action: 'toggleDomain', shortcut: { ctrl: true, alt: true, altGr: false, shift: false, meta: false, code: 'KeyD', key: 'd' } });
     const page = await context.newPage();
     await page.setViewportSize({ width: 800, height: 600 });
     await page.goto(base, { waitUntil: 'load' });
     await page.waitForTimeout(800);
-    const applied = (await page.evaluate(() => document.documentElement.getAttribute('data-darkabsolut'))) === 'on';
-    assert('light page auto-inverted to start', applied);
+    const isOn = async () => (await page.evaluate(() => document.documentElement.getAttribute('data-darkabsolut'))) === 'on';
+    assert('light page auto-inverted to start', await isOn());
 
-    const pressCombo = async () => {
+    const press = async (key) => {
       await page.bringToFront();
       await page.evaluate(() => window.focus());
       await page.keyboard.down('Control');
       await page.keyboard.down('Alt');
-      await page.keyboard.press('KeyD');
+      await page.keyboard.press(key);
       await page.keyboard.up('Alt');
       await page.keyboard.up('Control');
     };
 
-    await pressCombo();
+    await press('KeyD'); await page.waitForTimeout(800);
+    assert('per-site press 1 → dark OFF for the site', !(await isOn()));
+    await press('KeyD'); await page.waitForTimeout(800);
+    assert('per-site press 2 → dark ON again', await isOn());
+    await press('KeyK'); await page.waitForTimeout(400); // unbound key
+    assert('unbound combo does not toggle', await isOn());
+
+    // ── End-to-end: global combo flips the master switch ─────────────────────
+    await send({ type: 'IMPORT_SETTINGS', data: { globalEnabled: true } });
+    await send({ type: 'ADD_SHORTCUT', action: 'toggleGlobal', shortcut: { ctrl: true, alt: true, altGr: false, shift: false, meta: false, code: 'KeyG', key: 'g' } });
+    await page.goto(base, { waitUntil: 'load' });
     await page.waitForTimeout(800);
-    assert('shortcut press 1 → dark mode OFF for the site',
-      (await page.evaluate(() => document.documentElement.getAttribute('data-darkabsolut'))) !== 'on');
+    assert('page inverted under master-on', await isOn());
+    await press('KeyG'); await page.waitForTimeout(800);
+    assert('global press 1 → master OFF (state + page reverts)',
+      (await fullState()).globalEnabled === false && !(await isOn()));
+    await press('KeyG'); await page.waitForTimeout(800);
+    assert('global press 2 → master ON (state + page inverts)',
+      (await fullState()).globalEnabled === true && await isOn());
 
-    await pressCombo();
-    await page.waitForTimeout(800);
-    assert('shortcut press 2 → dark mode ON again',
-      (await page.evaluate(() => document.documentElement.getAttribute('data-darkabsolut'))) === 'on');
-
-    // A non-matching combo (wrong key) must NOT toggle.
-    await page.keyboard.down('Control');
-    await page.keyboard.down('Alt');
-    await page.keyboard.press('KeyK');
-    await page.keyboard.up('Alt');
-    await page.keyboard.up('Control');
-    await page.waitForTimeout(500);
-    assert('non-matching combo does not toggle',
-      (await page.evaluate(() => document.documentElement.getAttribute('data-darkabsolut'))) === 'on');
-
-    // ── Import/export round-trips the binding ────────────────────────────────
-    let full = (await send({ type: 'GET_FULL_STATE' })).state;
-    assert('GET_FULL_STATE exposes toggleShortcut', full.toggleShortcut && full.toggleShortcut.code === 'KeyD', JSON.stringify(full.toggleShortcut));
+    // ── Import/export round-trip + legacy migration ──────────────────────────
+    let full = await fullState();
+    assert('GET_FULL_STATE exposes shortcuts map', full.shortcuts && Array.isArray(full.shortcuts.toggleGlobal));
     await send({ type: 'IMPORT_SETTINGS', data: {
       globalEnabled: true,
-      toggleShortcut: { ctrl: false, alt: true, altGr: false, shift: false, meta: false, code: 'KeyJ', key: 'j' }
+      shortcuts: {
+        toggleDomain: [{ ctrl: true, alt: true, code: 'KeyJ', key: 'j' }],
+        toggleGlobal: [{ ctrl: false, alt: true, code: 'KeyM', key: 'm' }]
+      }
     } });
-    full = (await send({ type: 'GET_FULL_STATE' })).state;
-    assert('import: valid shortcut kept', full.toggleShortcut && full.toggleShortcut.code === 'KeyJ' && full.toggleShortcut.alt === true, JSON.stringify(full.toggleShortcut));
+    full = await fullState();
+    assert('import: shortcuts kept per action',
+      full.shortcuts.toggleDomain.length === 1 && full.shortcuts.toggleDomain[0].code === 'KeyJ'
+      && full.shortcuts.toggleGlobal.length === 1 && full.shortcuts.toggleGlobal[0].code === 'KeyM',
+      JSON.stringify(full.shortcuts));
     await send({ type: 'IMPORT_SETTINGS', data: {
       globalEnabled: true,
-      toggleShortcut: { code: 'KeyX' } // no qualifying modifier → dropped
+      toggleShortcut: { ctrl: true, alt: true, code: 'KeyL', key: 'l' } // legacy single
     } });
-    full = (await send({ type: 'GET_FULL_STATE' })).state;
-    assert('import: unqualified shortcut dropped to null', full.toggleShortcut == null, JSON.stringify(full.toggleShortcut));
+    full = await fullState();
+    assert('import: legacy toggleShortcut migrates to toggleDomain',
+      full.shortcuts.toggleDomain.length === 1 && full.shortcuts.toggleDomain[0].code === 'KeyL'
+      && full.toggleShortcut === undefined,
+      JSON.stringify(full.shortcuts));
   } finally {
     await context.close();
     server.close();

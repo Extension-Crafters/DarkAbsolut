@@ -57,10 +57,12 @@
     // load even though auto-apply says off. Sticky for the page so a later
     // STATE_UPDATED broadcast can't quietly revert it; resets on navigation.
     forcedOnce: false,
-    // User-recorded keyboard shortcut that toggles dark mode on/off for this
-    // site. Refreshed from settings on every evaluate; null = unbound. Read by
-    // the top-frame keydown handler installed at startup. See storage.js.
-    toggleShortcut: null
+    // User-recorded keyboard shortcuts (per action, each a LIST of bindings).
+    // Refreshed from settings on every evaluate. Read by the top-frame keydown
+    // handler installed at startup. See storage.js.
+    //   toggleDomain — flip dark mode on/off for this site.
+    //   toggleGlobal — flip the master kill switch for all sites.
+    shortcuts: { toggleDomain: [], toggleGlobal: [] }
   };
   const state = DA.state;
 
@@ -600,12 +602,12 @@
     try { window.parent.postMessage({ __darkabsolut_req: true }, "*"); } catch (_) {}
   }
 
-  // ── Toggle shortcut (keyboard binding for per-site on/off) ───────────────
-  // The user records a combo in the popup (stored in settings); pressing it on
-  // any page flips dark mode on/off for the current site. We register one
-  // capturing keydown handler in the TOP frame only (so a focused iframe can't
-  // double-fire it and the host we toggle is always the main page's), and read
-  // the binding from state.toggleShortcut, which evaluateAndApply keeps fresh.
+  // ── Keyboard shortcuts (per-site + global on/off) ────────────────────────
+  // The user records combos in the popup (stored in settings); pressing one on
+  // any page fires its action. We register one capturing keydown handler in the
+  // TOP frame only (so a focused iframe can't double-fire it and the host we
+  // toggle is always the main page's), and read the bindings from
+  // state.shortcuts, which evaluateAndApply keeps fresh.
 
   // Codes that are themselves modifier keys — never the shortcut's main key.
   // Keep in sync with storage.js MODIFIER_CODE_RE.
@@ -623,15 +625,25 @@
       && !!sc.altGr === altGr;
   }
 
+  function listMatches(list, e) {
+    return Array.isArray(list) && list.some(sc => shortcutMatches(sc, e));
+  }
+
   function onShortcutKeydown(e) {
     if (e.repeat) return; // holding the combo must not toggle repeatedly
-    const sc = state.toggleShortcut;
-    if (!shortcutMatches(sc, e)) return;
-    e.preventDefault();
-    e.stopPropagation();
-    // Background flips this host's dark rule and broadcasts STATE_UPDATED,
-    // which re-runs evaluateAndApply here to apply/remove the theme.
-    try { chrome.runtime.sendMessage({ type: "TOGGLE_DOMAIN_DARK", url: location.href }); } catch (_) {}
+    const sc = state.shortcuts || {};
+    // Background flips the relevant setting and broadcasts STATE_UPDATED, which
+    // re-runs evaluateAndApply here to apply/remove the theme. Check global
+    // first so a combo bound to both resolves deterministically.
+    if (listMatches(sc.toggleGlobal, e)) {
+      e.preventDefault();
+      e.stopPropagation();
+      try { chrome.runtime.sendMessage({ type: "TOGGLE_GLOBAL_ENABLED" }); } catch (_) {}
+    } else if (listMatches(sc.toggleDomain, e)) {
+      e.preventDefault();
+      e.stopPropagation();
+      try { chrome.runtime.sendMessage({ type: "TOGGLE_DOMAIN_DARK", url: location.href }); } catch (_) {}
+    }
   }
 
   function installShortcutHandler() {
@@ -661,10 +673,10 @@
       });
     } catch (_) { return; }
     if (!resp || !resp.ok) return;
-    // Keep the bound shortcut current even on pages where we apply nothing
+    // Keep the bound shortcuts current even on pages where we apply nothing
     // (disabled host, master off) — the user must still be able to turn dark
-    // mode back ON for the site via the keyboard. Set before any early return.
-    state.toggleShortcut = (resp.state && resp.state.toggleShortcut) || null;
+    // mode back ON via the keyboard. Set before any early return.
+    state.shortcuts = (resp.state && resp.state.shortcuts) || { toggleDomain: [], toggleGlobal: [] };
     // A one-time button click only forces the page on while we're still in
     // "once" mode; leaving that mode clears the forced state.
     if (resp.mode !== "once") state.forcedOnce = false;

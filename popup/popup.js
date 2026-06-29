@@ -94,7 +94,7 @@ async function refresh() {
   }
 
   refreshDelay(masterOff, restricted);
-  renderShortcut();
+  renderShortcuts();
 }
 
 // Re-analyse throttle controls: the global default applies to every site; a
@@ -248,11 +248,17 @@ function showVersion() {
   } catch (_) { /* not in an extension context */ }
 }
 
-// ── Toggle shortcut: record a key combo to flip dark mode on the active host ─
-// Recording captures keydown on the popup. Esc cancels. A binding is accepted
-// only once the user presses a non-modifier key WHILE holding at least one
-// qualifying modifier (Ctrl, Alt, AltGr or Meta); the background re-validates.
-let recordingShortcut = false;
+// ── Keyboard shortcuts: record combos for per-site / global on/off ───────────
+// Each action keeps a LIST of bindings. "Add shortcut" records one (Esc cancels;
+// a non-modifier alone is rejected); each binding renders as a chip with a ×
+// remove button. A combo is accepted only with a qualifying modifier (Ctrl /
+// Alt / AltGr / Meta) plus a non-modifier key; the background re-validates and
+// de-dupes.
+const SC_ACTIONS = [
+  { action: "toggleDomain", listId: "da-sc-list-domain", addId: "da-sc-add-domain" },
+  { action: "toggleGlobal", listId: "da-sc-list-global", addId: "da-sc-add-global" }
+];
+let recordingAction = null; // the action currently recording, or null
 
 function isModifierCode(code) {
   return /^(?:Control|Alt|Shift|Meta)(?:Left|Right)$|^AltGraph$|^CapsLock$/.test(code);
@@ -288,90 +294,109 @@ function shortcutLabel(sc) {
   return [...modifierParts(sc), keyLabel(sc)].join(" + ");
 }
 
-function renderShortcut() {
-  const display = $("da-sc-display");
-  const recordBtn = $("da-sc-record");
-  const removeBtn = $("da-sc-remove");
-  if (!display || !recordBtn || !removeBtn) return;
-  display.classList.remove("is-empty", "is-recording", "is-invalid");
-  if (recordingShortcut) {
-    display.classList.add("is-recording");
-    display.textContent = "Press keys…  (Esc to cancel)";
-    recordBtn.textContent = "Cancel";
-    removeBtn.hidden = true;
-    return;
-  }
-  const sc = state && state.toggleShortcut;
-  if (sc && sc.code) {
-    display.textContent = shortcutLabel(sc);
-    recordBtn.textContent = "Change";
-    removeBtn.hidden = false;
-  } else {
-    display.classList.add("is-empty");
-    display.textContent = "Not set";
-    recordBtn.textContent = "Set shortcut";
-    removeBtn.hidden = true;
+function setScStatus(text, invalid) {
+  const status = $("da-sc-status");
+  if (!status) return;
+  status.textContent = text || "";
+  status.classList.toggle("is-invalid", !!invalid);
+}
+
+function makeChip(action, sc, index) {
+  const chip = document.createElement("span");
+  chip.className = "da-sc-chip";
+  const label = document.createElement("span");
+  label.textContent = shortcutLabel(sc);
+  chip.appendChild(label);
+  const x = document.createElement("button");
+  x.type = "button";
+  x.className = "da-sc-chip-x";
+  x.textContent = "×";
+  x.setAttribute("aria-label", "Remove shortcut " + shortcutLabel(sc));
+  x.addEventListener("click", () => onRemoveBinding(action, index));
+  chip.appendChild(x);
+  return chip;
+}
+
+function renderShortcuts() {
+  const sc = (state && state.shortcuts) || { toggleDomain: [], toggleGlobal: [] };
+  for (const a of SC_ACTIONS) {
+    const list = $(a.listId);
+    const addBtn = $(a.addId);
+    if (!list || !addBtn) continue;
+    const bindings = sc[a.action] || [];
+    const recording = recordingAction === a.action;
+    list.replaceChildren();
+    bindings.forEach((b, i) => list.appendChild(makeChip(a.action, b, i)));
+    if (recording) {
+      const chip = document.createElement("span");
+      chip.className = "da-sc-chip is-recording";
+      chip.textContent = "Press keys…  (Esc)";
+      list.appendChild(chip);
+    } else if (!bindings.length) {
+      const empty = document.createElement("span");
+      empty.className = "da-sc-empty";
+      empty.textContent = "None";
+      list.appendChild(empty);
+    }
+    addBtn.textContent = recording ? "Cancel" : "Add shortcut";
+    addBtn.classList.toggle("is-recording", recording);
   }
 }
 
 function onRecordKeydown(e) {
   e.preventDefault();
   e.stopPropagation();
+  if (!recordingAction) return;
   const code = e.code || "";
-  if (code === "Escape") { stopRecording(); return; } // cancel — keep old binding
+  if (code === "Escape") { stopRecording(); return; } // cancel recording
   const mods = {
     ctrl: e.ctrlKey, alt: e.altKey,
     altGr: !!(e.getModifierState && e.getModifierState("AltGraph")),
     meta: e.metaKey, shift: e.shiftKey
   };
-  const display = $("da-sc-display");
   if (isModifierCode(code)) {
     // Still composing — preview the held modifiers and wait for a main key.
-    if (display) {
-      display.classList.remove("is-invalid");
-      display.classList.add("is-recording");
-      display.textContent = [...modifierParts(mods), "…"].join(" + ");
-    }
+    setScStatus([...modifierParts(mods), "…"].join(" + "), false);
     return;
   }
   if (!(mods.ctrl || mods.alt || mods.altGr || mods.meta)) {
-    if (display) {
-      display.classList.remove("is-recording");
-      display.classList.add("is-invalid");
-      display.textContent = "Need Ctrl, Alt or AltGr + another key";
-    }
+    setScStatus("Need Ctrl, Alt or AltGr + another key", true);
     return; // stay in recording mode so the user can try again
   }
-  saveShortcut({ ...mods, code, key: e.key || "" });
+  saveBinding(recordingAction, { ...mods, code, key: e.key || "" });
 }
 
-function startRecording() {
-  recordingShortcut = true;
-  document.addEventListener("keydown", onRecordKeydown, true);
-  renderShortcut();
-  $("da-sc-record").blur(); // so Space/Enter don't re-fire the button
+function startRecording(action) {
+  if (!recordingAction) document.addEventListener("keydown", onRecordKeydown, true);
+  recordingAction = action;
+  setScStatus("", false);
+  renderShortcuts();
+  const a = SC_ACTIONS.find(x => x.action === action);
+  if (a) { const b = $(a.addId); if (b) b.blur(); } // so Space/Enter don't re-fire
 }
 
 function stopRecording() {
-  recordingShortcut = false;
+  recordingAction = null;
   document.removeEventListener("keydown", onRecordKeydown, true);
-  renderShortcut();
+  setScStatus("", false);
+  renderShortcuts();
 }
 
-async function saveShortcut(sc) {
-  recordingShortcut = false;
+async function saveBinding(action, sc) {
+  recordingAction = null;
   document.removeEventListener("keydown", onRecordKeydown, true);
-  await send({ type: "SET_TOGGLE_SHORTCUT", shortcut: sc });
+  setScStatus("", false);
+  await send({ type: "ADD_SHORTCUT", action, shortcut: sc });
   await refresh();
 }
 
-function onRecordClick() {
-  if (recordingShortcut) stopRecording();
-  else startRecording();
+function onAddClick(action) {
+  if (recordingAction === action) stopRecording();
+  else startRecording(action);
 }
 
-async function onRemoveShortcut() {
-  await send({ type: "SET_TOGGLE_SHORTCUT", shortcut: null });
+async function onRemoveBinding(action, index) {
+  await send({ type: "REMOVE_SHORTCUT", action, index });
   await refresh();
 }
 
@@ -401,8 +426,9 @@ document.addEventListener("DOMContentLoaded", () => {
       const hint = $("da-hint");
       if (hint) hint.textContent = b.getAttribute("data-hint") || "";
     }));
-  $("da-sc-record").addEventListener("click", onRecordClick);
-  $("da-sc-remove").addEventListener("click", onRemoveShortcut);
+  for (const a of SC_ACTIONS) {
+    $(a.addId).addEventListener("click", () => onAddClick(a.action));
+  }
   $("da-reload").addEventListener("click", onReload);
   document.querySelectorAll(".da-tab").forEach(b => {
     b.addEventListener("click", () => activateTab(b.dataset.tab));
