@@ -16,7 +16,8 @@
 
   const {
     ORIG_ATTR, ORIG_COLOR_ATTR, BG_IMAGE_ATTR, BG_ICON_ATTR,
-    NATIVE_DARK_ATTR, NATIVE_LIGHT_ATTR, RESCUE_COLOR_ATTR, LIGHT_ICON_ATTR
+    NATIVE_DARK_ATTR, NATIVE_LIGHT_ATTR, RESCUE_COLOR_ATTR, LIGHT_ICON_ATTR,
+    INVERT_MEDIA_ATTR
   } = DA;
 
   // Minimum fraction of the viewport area a subtree must cover before we
@@ -158,6 +159,18 @@
     return false;
   }
 
+  // Absolute chroma (max−min over the RGB channels, 0..255) below which a
+  // "saturated" light colour is really a PERCEPTUALLY-NEUTRAL near-white/gray.
+  // HSL saturation explodes toward white — a 5/255 channel spread reads as
+  // s≈0.5 — so the branches below would mistake a neutral canvas for a tinted
+  // surface and hue-amplify it, which the page invert then renders as a
+  // COLOURED dark block (the navy cast Gmail's faint-blue #f6f8fc canvas, chroma
+  // 6, acquired). A genuine light tint — an info box, a brand wash, a coloured
+  // selection — clears this floor (chroma ≳ 25), so it keeps its hue. Tuned to
+  // sit just above Gmail's neutral chrome/selection (chroma ≤ 22) and below
+  // semantic light fills (success #d4edda 25, info #d1ecf1 32, warn #fff3cd 50).
+  const MIN_TINT_CHROMA = 24;
+
   // Saturated mid-lightness backgrounds (e.g. brand blue #459cd5, l~55%)
   // are barely darkened by `invert + hue-rotate(180)`. Pre-lighten the bg
   // to ~92% lightness so the html-level invert flips it to ~8% (true dark)
@@ -171,7 +184,7 @@
     const hsl = rgbToHsl(c);
     if (hsl.l < 0.18) return; // dark — tagNativeDarkBg or filter handles it
 
-    let targetS;
+    let targetS, targetL = 0.92;
     if (hsl.s >= 0.30 && hsl.l <= 0.85) {
       // Saturated mid-lightness background.
       targetS = Math.min(hsl.s, 0.55);
@@ -187,7 +200,21 @@
       return; // near-grayscale or extreme lightness — filter is adequate
     }
 
-    const lightened = hslToRgbString({ h: hsl.h, s: targetS, l: 0.92 });
+    // The high HSL saturation that selected a branch above is a measurement
+    // artefact when the absolute chroma is tiny: the surface is really neutral.
+    // Desaturate it IN PLACE (drop saturation, keep its own lightness) so the
+    // page invert renders it neutral dark rather than a coloured block. Keeping
+    // the lightness — instead of the 0.92 normalisation the branches use — lets
+    // a near-white canvas invert all the way to near-black (a true dark
+    // background) while a lighter neutral fill (a selected/hover row) inverts to
+    // a slightly-lifted neutral ~#141414, preserving its subtle highlight.
+    const chroma = Math.max(c.r, c.g, c.b) - Math.min(c.r, c.g, c.b);
+    if (chroma < MIN_TINT_CHROMA) {
+      targetS = 0;
+      targetL = hsl.l;
+    }
+
+    const lightened = hslToRgbString({ h: hsl.h, s: targetS, l: targetL });
     el.setAttribute(ORIG_ATTR, el.style.getPropertyValue("background-color") || "");
     el.style.setProperty("background-color", lightened, "important");
 
@@ -825,6 +852,91 @@
     clear();
   }
 
+  // ── Large light canvases (the navigable map-surface case) ────────────────
+  // A canvas is counter-inverted by default so photos/video/game frames keep
+  // their true colours. That leaves a LIGHT raster surface the user navigates —
+  // Google Maps' light map tiles — bright on the otherwise-dark page. Sample the
+  // canvas: a predominantly-LIGHT large canvas is tagged to invert WITH the theme
+  // (drop the counter-invert) so it darkens; a DARK one (a native dark map, a
+  // dark game) keeps its counter-invert so it stays true. Decided per-sample, so
+  // it self-corrects when the map switches between light and satellite/dark.
+
+  // Min fraction of the viewport a canvas must cover to count as a navigable
+  // background surface rather than a content graphic (chart, sprite, thumbnail)
+  // whose colours should be preserved.
+  const MAP_CANVAS_MIN_AREA_RATIO = 0.25;
+  // Opaque-pixel mean luminance at/above which the canvas is a LIGHT surface
+  // worth darkening. Matches the page dark/light boundary (DARK_LUM_MAX) so
+  // "not neutral-dark ⇒ invert it" stays consistent.
+  const LIGHT_CANVAS_MIN_LUM = 0.22;
+  // Need this fraction of sampled pixels opaque to trust the verdict; a
+  // near-empty read (WebGL buffer not preserved, a pre-render frame) is
+  // inconclusive → leave the tag as-is (safe: keeps the default true colours).
+  const CANVAS_MIN_OPAQUE_FRAC = 0.30;
+  // Passive (mutation/scan) re-sample floor; interaction re-checks force a fresh
+  // sample past this so a just-switched map style is reflected at once.
+  const CANVAS_SAMPLE_THROTTLE_MS = 500;
+  const CANVAS_SAMPLE_DIM = 32;
+  const canvasSampleAt = new WeakMap(); // canvas -> last sample timestamp (ms)
+
+  // Synchronously sample a canvas's opaque pixels → { lum, opaqueFrac } or null.
+  // Downscales via drawImage into a tiny 2D canvas, then reads it back. A
+  // cross-origin-tainted or unreadable canvas throws → null (caller leaves the
+  // tag unchanged). Cheap: the read target is CANVAS_SAMPLE_DIM².
+  function sampleCanvas(cv) {
+    try {
+      if (!cv.width || !cv.height) return null;
+      const s = document.createElement("canvas");
+      s.width = CANVAS_SAMPLE_DIM; s.height = CANVAS_SAMPLE_DIM;
+      const ctx = s.getContext("2d", { willReadFrequently: true });
+      if (!ctx) return null;
+      ctx.drawImage(cv, 0, 0, CANVAS_SAMPLE_DIM, CANVAS_SAMPLE_DIM);
+      const d = ctx.getImageData(0, 0, CANVAS_SAMPLE_DIM, CANVAS_SAMPLE_DIM).data; // throws if tainted
+      let sr = 0, sg = 0, sb = 0, n = 0, total = 0;
+      for (let i = 0; i < d.length; i += 4) {
+        total++;
+        if (d[i + 3] <= 20) continue; // skip (near-)transparent pixels
+        sr += d[i]; sg += d[i + 1]; sb += d[i + 2]; n++;
+      }
+      if (!n) return { lum: 0, opaqueFrac: 0 };
+      return { lum: luminance({ r: sr / n, g: sg / n, b: sb / n }), opaqueFrac: n / total };
+    } catch (_) { return null; } // tainted / not drawable
+  }
+
+  // Classify one canvas. `force` bypasses the per-canvas sample throttle (used
+  // by the interaction re-check so a light↔satellite switch is picked up at
+  // once). Tags INVERT_MEDIA_ATTR on a predominantly-light large canvas, clears
+  // it on a dark/inconclusive one. Skipped under "force natural images".
+  function classifyMapCanvas(cv, force) {
+    if (document.documentElement.hasAttribute(DA.NOIMG_ATTR)) return;
+    let r;
+    try { r = cv.getBoundingClientRect(); } catch (_) { return; }
+    const vw = window.innerWidth | 0, vh = window.innerHeight | 0;
+    if (vw < 50 || vh < 50) return;
+    if (r.width * r.height < vw * vh * MAP_CANVAS_MIN_AREA_RATIO) {
+      if (cv.hasAttribute(INVERT_MEDIA_ATTR)) cv.removeAttribute(INVERT_MEDIA_ATTR);
+      return; // too small to be a navigable surface — keep true colours
+    }
+    const now = Date.now();
+    if (!force && now - (canvasSampleAt.get(cv) || 0) < CANVAS_SAMPLE_THROTTLE_MS) return;
+    canvasSampleAt.set(cv, now);
+    const s = sampleCanvas(cv);
+    if (!s || s.opaqueFrac < CANVAS_MIN_OPAQUE_FRAC) return; // inconclusive — leave tag as-is
+    if (s.lum >= LIGHT_CANVAS_MIN_LUM) {
+      if (!cv.hasAttribute(INVERT_MEDIA_ATTR)) cv.setAttribute(INVERT_MEDIA_ATTR, "1");
+    } else if (cv.hasAttribute(INVERT_MEDIA_ATTR)) {
+      cv.removeAttribute(INVERT_MEDIA_ATTR);
+    }
+  }
+
+  // Re-sample every large canvas now (interaction re-check entry point), forcing
+  // past the throttle so a just-switched map style is reflected immediately.
+  function reclassifyLargeCanvases() {
+    let list;
+    try { list = document.getElementsByTagName("canvas"); } catch (_) { return; }
+    for (let i = 0; i < list.length && i < 8; i++) classifyMapCanvas(list[i], true);
+  }
+
   function processElement(el) {
     if (!el || el.nodeType !== 1) return;
     try {
@@ -878,6 +990,9 @@
           !el.hasAttribute(BG_IMAGE_ATTR) && !el.hasAttribute(BG_ICON_ATTR)) {
         classifyLightIconNonSvg(el, cs);
       }
+      // A large LIGHT canvas (the Google Maps map surface) is darkened WITH the
+      // theme instead of kept true-colour; a dark canvas keeps its true colours.
+      if (el.tagName === "CANVAS") classifyMapCanvas(el, false);
       if (tagNativeDarkBg(el, cs)) return;
       if (el.hasAttribute(NATIVE_DARK_ATTR)) {
         el.removeAttribute(NATIVE_DARK_ATTR);
@@ -1203,6 +1318,8 @@
     rescueTextColor,
     revertRescuedText,
     processElement,
+    classifyMapCanvas,
+    reclassifyLargeCanvases,
     markBackgroundImageElements,
     processShadowRoot,
     clearShadowStyles,

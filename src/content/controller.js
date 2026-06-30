@@ -23,6 +23,7 @@
   const {
     markBackgroundImageElements,
     processElement,
+    reclassifyLargeCanvases,
     revertPreLightened,
     revertRescuedText,
     clearShadowStyles,
@@ -464,7 +465,13 @@
     // descendant frames (fixes a body iframe left double-inverted/light); dark
     // pages re-scan for newly-injected light subtrees (compose dialog, message
     // pane). Cheap — the mutation observer already handles per-node bg tagging.
-    if (state.applied) broadcastInversionToSubframes(true);
+    if (state.applied) {
+      broadcastInversionToSubframes(true);
+      // Re-sample large canvases (forcing past the per-canvas throttle) so a map
+      // surface that just switched between light and satellite/dark styles is
+      // re-classified — light → darken with the theme, dark → keep true colours.
+      try { reclassifyLargeCanvases(); } catch (_) {}
+    }
     else scheduleLightIslandRescan();
   }
 

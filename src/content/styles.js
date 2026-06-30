@@ -50,6 +50,15 @@ html[${ATTR}="on"] [${DA.NATIVE_DARK_ATTR}="1"] {
 html[${ATTR}="on"] svg:not([${DA.BG_IMAGE_ATTR}="1"]):not(:has(image)):not([${DA.LIGHT_ICON_ATTR}="1"]) {
   filter: none !important;
 }
+/* A large LIGHT canvas the user navigates (Google Maps' light map tiles),
+   tagged by elements.js::classifyMapCanvas. The blanket canvas counter-invert
+   above keeps such a canvas at its true (bright) colours on the dark page;
+   dropping the counter-invert (filter:none) lets the page-level invert darken it
+   WITH the theme. A canvas that samples DARK is left untagged, so it keeps the
+   counter-invert (true colours). Higher specificity than the blanket rule. */
+html[${ATTR}="on"] canvas[${DA.INVERT_MEDIA_ATTR}="1"] {
+  filter: none !important;
+}
 /* Light-icon rescue: a glyph that is ALREADY light (a prefers-dark icon on a
    light-themed page — e.g. Gmail's header/nav on an OS that prefers dark) would
    be flipped to black-on-dark by the page invert. Counter-invert it so it stays
@@ -217,6 +226,7 @@ img, video, embed, object, canvas, svg image,
   filter: invert(1) hue-rotate(180deg) !important;
 }
 svg:not([${DA.BG_IMAGE_ATTR}="1"]):not(:has(image)):not([${DA.LIGHT_ICON_ATTR}="1"]) { filter: none !important; }
+canvas[${DA.INVERT_MEDIA_ATTR}="1"] { filter: none !important; }
 [${DA.LIGHT_ICON_ATTR}="1"] { filter: invert(1) hue-rotate(180deg) !important; }
 img[${DA.BG_ICON_ATTR}="1"] { filter: none !important; }
 [${DA.NATIVE_DARK_ATTR}="1"] img,

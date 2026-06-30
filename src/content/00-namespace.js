@@ -24,3 +24,12 @@ DA.HC_ATTR = "data-darkabsolut-hc";
 // invert would flip it to black-on-dark; this marks it for a counter-invert so
 // it stays light. The mirror of BG_ICON_ATTR (which rescues DARK bg-icons).
 DA.LIGHT_ICON_ATTR = "data-darkabsolut-lighticon";
+// A LARGE canvas whose sampled pixels are predominantly LIGHT — a light raster
+// surface the user navigates rather than a photo to view in true colour (the
+// Google Maps map canvas). Media is counter-inverted by default to keep true
+// colours, which leaves such a canvas bright on the dark UI. This marks it to
+// drop the counter-invert so the page filter darkens it WITH the theme; a canvas
+// that samples dark (a native dark map / dark game) is left counter-inverted so
+// it keeps its real colours. Decided per-sample so it self-corrects when the map
+// switches between light and satellite/dark styles.
+DA.INVERT_MEDIA_ATTR = "data-darkabsolut-invertmedia";

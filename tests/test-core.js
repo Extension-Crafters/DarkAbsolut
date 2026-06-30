@@ -122,7 +122,7 @@
     const hsl = rgbToHsl(c);
     if (hsl.l < 0.18) return;
 
-    let targetS;
+    let targetS, targetL = 0.92;
     if (hsl.s >= 0.30 && hsl.l <= 0.85) {
       targetS = Math.min(hsl.s, 0.55);
     } else if (hsl.s >= 0.30 && hsl.l > 0.85) {
@@ -133,7 +133,12 @@
       return;
     }
 
-    const lightened = hslToRgbString({ h: hsl.h, s: targetS, l: 0.92 });
+    // Perceptually-neutral near-white/gray (tiny absolute chroma) → desaturate
+    // in place so the invert renders it neutral dark, not a coloured block.
+    const chroma = Math.max(c.r, c.g, c.b) - Math.min(c.r, c.g, c.b);
+    if (chroma < 24) { targetS = 0; targetL = hsl.l; }
+
+    const lightened = hslToRgbString({ h: hsl.h, s: targetS, l: targetL });
     el.setAttribute(ORIG_ATTR, el.style.getPropertyValue('background-color') || '');
     el.setAttribute('data-da-orig-computed', cs.backgroundColor);
     el.style.setProperty('background-color', lightened, 'important');
