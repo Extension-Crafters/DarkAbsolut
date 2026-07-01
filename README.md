@@ -37,12 +37,13 @@ Turn off the light waiting to the end of humanity...
 
 [![Add to Chrome](https://img.shields.io/badge/Add%20to%20Chrome-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white)](https://chromewebstore.google.com/detail/darkabsolut/nngbhpgleemmcplkompooimieedgichk)
 [![Add to Firefox](https://img.shields.io/badge/Add%20to%20Firefox-FF7139?style=for-the-badge&logo=firefoxbrowser&logoColor=white)](https://addons.mozilla.org/firefox/addon/darkabsolut/)
-[![Get for Edge](https://img.shields.io/badge/Get%20for%20Edge-0C59A4?style=for-the-badge&logo=microsoftedge&logoColor=white)](https://chromewebstore.google.com/detail/darkabsolut/nngbhpgleemmcplkompooimieedgichk)
+[![Get for Edge](https://img.shields.io/badge/Get%20for%20Edge-0C59A4?style=for-the-badge&logo=microsoftedge&logoColor=white)](https://microsoftedge.microsoft.com/addons/detail/darkabsolut/nalkilemjpkameecloomdbomekdnghbm)
 [![Get for Opera](https://img.shields.io/badge/Get%20for%20Opera-FF1B2D?style=for-the-badge&logo=opera&logoColor=white)](https://chromewebstore.google.com/detail/darkabsolut/nngbhpgleemmcplkompooimieedgichk)
+[![Get for Brave](https://img.shields.io/badge/Get%20for%20Brave-FB542B?style=for-the-badge&logo=brave&logoColor=white)](https://chromewebstore.google.com/detail/darkabsolut/nngbhpgleemmcplkompooimieedgichk)
 
-> **Microsoft Edge** and **Opera** are Chromium-based and run the same package,
-> so their badges install the **Chrome Web Store** build (dedicated Edge/Opera
-> listings are pending). Prefer to build it yourself? See
+> **Opera** and **Brave** are Chromium-based and run the same package, so their
+> badges install the **Chrome Web Store** build (Brave uses it directly; a
+> dedicated Opera listing is pending). Prefer to build it yourself? See
 > [load unpacked](#install-development).
 
 A cross-browser (Chrome / Firefox MV3) extension that automatically applies a

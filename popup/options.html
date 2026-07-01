@@ -89,6 +89,34 @@
 
     <section class="io-card">
       <div>
+        <h2>Keyboard shortcuts</h2>
+        <p class="io-desc">
+          Press a bound combo on any page to run its action. Click “Add
+          shortcut”, then press the keys (Esc cancels). Needs Ctrl, Alt or AltGr
+          plus another key. Each action can have several bindings.
+        </p>
+      </div>
+
+      <div class="da-sc opt-sc">
+        <div class="da-sc-group">
+          <div class="da-sc-grouptitle">Current site on/off</div>
+          <div class="da-sc-list" id="da-sc-list-domain" aria-live="polite"></div>
+          <button type="button" id="da-sc-add-domain" class="da-btn da-sc-add">Add shortcut</button>
+        </div>
+
+        <div class="da-sc-group">
+          <div class="da-sc-grouptitle">Global on/off (all sites)</div>
+          <div class="da-sc-list" id="da-sc-list-global" aria-live="polite"></div>
+          <button type="button" id="da-sc-add-global" class="da-btn da-sc-add">Add shortcut</button>
+        </div>
+
+        <div class="da-sc-status" id="da-sc-status" aria-live="polite"></div>
+        <div class="da-sc-desc">Current-site toggles dark mode for the active domain; global is the master switch. Esc cancels recording.</div>
+      </div>
+    </section>
+
+    <section class="io-card">
+      <div>
         <h2>Per-site configuration</h2>
         <p class="io-desc">
           Every domain and subdomain you've customised from the popup is stored

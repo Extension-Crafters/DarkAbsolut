@@ -3,6 +3,14 @@ const { $, send, THROTTLE, clampDelay } = DAPopup;
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
+// Keyboard-shortcut recorder (shared with the popup). It reads the last-fetched
+// shortcuts and, after a binding add/remove, re-renders the whole page.
+let shortcutsState = { toggleDomain: [], toggleGlobal: [] };
+const shortcutUI = DAPopup.createShortcutUI({
+  getShortcuts: () => shortcutsState,
+  afterChange: render
+});
+
 function svg(width, paths) {
   const el = document.createElementNS(SVG_NS, "svg");
   el.setAttribute("viewBox", "0 0 24 24");
@@ -151,6 +159,10 @@ async function render() {
       Number.isFinite(state.globalThrottleDelay) ? state.globalThrottleDelay : THROTTLE.DEFAULT);
   }
 
+  // Keyboard-shortcut card (chips + record buttons).
+  shortcutsState = state.shortcuts || { toggleDomain: [], toggleGlobal: [] };
+  shortcutUI.render();
+
   const rows = buildRows(state);
   const tbody = $("opt-rows");
   tbody.replaceChildren(...rows.map(renderRow));
@@ -204,6 +216,7 @@ async function onSettingChange(msg) {
 document.addEventListener("DOMContentLoaded", () => {
   $("opt-clear-top").addEventListener("click", onClearAll);
   $("opt-clear-bottom").addEventListener("click", onClearAll);
+  shortcutUI.wire();
 
   // Settings card → background.
   $("opt-mode").addEventListener("change", e => onSettingChange({ type: "SET_MODE", mode: e.target.value }));

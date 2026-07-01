@@ -100,6 +100,14 @@ const HOST = 'news.ycombinator.com';
     });
     await opt.screenshot({ path: path.join(OUT, 'options-page.png'), clip: { x: 0, y: 0, width: 900, height: Math.min(h, 900) } });
     console.log('wrote screenshoots/options-page.png (height ' + Math.min(h, 900) + ')');
+
+    // ── Options page, Edge-store frame (1280×800) ────────────────────────────
+    // Same page re-framed to the Edge Add-ons store's required 1280×800 canvas.
+    // The 860px-wide content stays centered on its dark radial-gradient body.
+    await opt.setViewportSize({ width: 1280, height: 800 });
+    await opt.waitForTimeout(200);
+    await opt.screenshot({ path: path.join(OUT, 'options-page-1280x800.png'), clip: { x: 0, y: 0, width: 1280, height: 800 } });
+    console.log('wrote screenshoots/options-page-1280x800.png');
   } finally {
     await context.close();
     try { fs.rmSync(USER_DATA, { recursive: true, force: true }); } catch (_) {}

@@ -2,6 +2,11 @@
 
 .opt-main { max-width: 860px; }
 
+/* Keyboard-shortcut card: the io-card already frames + pads it, so drop the
+   popup-only inset and bottom divider carried by .da-sc. */
+.opt-sc { padding: 0; border-bottom: 0; }
+.opt-sc .da-sc-desc { font-size: 12px; }
+
 .opt-toolbar {
   display: flex;
   align-items: center;
