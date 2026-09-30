@@ -278,6 +278,48 @@
     return false;
   }
 
+  // ── Phase-0 lightness gauge (cheap, layout-free) ─────────────────────────────
+  // A coarse "is this page light?" probe meant to run SYNCHRONOUSLY at
+  // document_start, BEFORE the expensive effectiveBgColor() grid sampling, to
+  // decide whether to optimistically pre-invert. Deliberately O(1) and layout-
+  // free: it reads only computed COLOURS + attributes, never elementFromPoint /
+  // getBoundingClientRect / offset* (those force reflow — the cost the grid pays).
+  //
+  // Empirically (Chrome + Firefox), at document_start the ONLY page-authored
+  // signal resolved on <html> is what is set INLINE on the <html> start tag
+  // (style / class / color-scheme); head <style> and external <link> backgrounds
+  // are not applied yet and <body> is usually null. So this reliably catches the
+  // SSR / FOUC-prevention dark pattern and returns "unknown" for everything else
+  // — the safe direction: the caller then pre-inverts (optimistically dark) and
+  // the later grid sampling in reevaluate() is the authoritative verdict.
+  //
+  // Confidence policy: return "dark" ONLY on strong early signals (a declared
+  // dark scheme, or an opaque neutral-dark base background). A false "dark" would
+  // re-introduce the white flash on a genuinely light page; a false "unknown"
+  // only costs a brief optimistic invert that reevaluate() reverts — so we bias
+  // to "unknown". Returns "dark" | "light" | "unknown".
+  function quickPageLightness() {
+    const html = document.documentElement;
+    if (!html) return "unknown";
+    // 1) Declared dark scheme (inline color-scheme / <meta>) — authoritative.
+    if (pageDeclaresDarkScheme()) return "dark";
+    // 2) An opaque base background on <html> / <body>. At document_start this is
+    //    only an INLINE bg (SSR); later phases also see head-<style>/external CSS.
+    for (const el of [html, document.body]) {
+      if (!el) continue;
+      let c;
+      try { c = parseColor(getComputedStyle(el).backgroundColor); } catch (_) { c = null; }
+      if (c && c.a > 0.5) {
+        // Skip our own injected white fallback (only present once applied).
+        if (el === html && DA.state && DA.state.applied &&
+            c.r === 255 && c.g === 255 && c.b === 255) continue;
+        return isNeutralDark(c) ? "dark" : "light";
+      }
+    }
+    // 3) No opaque base background resolved yet — unknown. Caller pre-inverts.
+    return "unknown";
+  }
+
   function allStylesheetsLoaded() {
     const links = document.querySelectorAll('link[rel~="stylesheet"]');
     for (const l of links) {
@@ -306,6 +348,7 @@
     sampleChromeBgColors,
     effectiveBgColor,
     pageDeclaresDarkScheme,
+    quickPageLightness,
     allStylesheetsLoaded,
     detectDarkState
   };

@@ -14,6 +14,7 @@
   } = DA.styles;
   const {
     pageDeclaresDarkScheme,
+    quickPageLightness,
     effectiveBgColor,
     canvasBgColor,
     fullPageBgColor,
@@ -26,6 +27,7 @@
     reclassifyLargeCanvases,
     revertPreLightened,
     revertRescuedText,
+    revertZLifts,
     clearShadowStyles,
     tagLightIslands,
     clearLightIslands
@@ -58,6 +60,11 @@
     // load even though auto-apply says off. Sticky for the page so a later
     // STATE_UPDATED broadcast can't quietly revert it; resets on navigation.
     forcedOnce: false,
+    // Set true on the first (cold) evaluate so the optimistic phase-0 pre-invert
+    // fires ONCE per page load and never re-fires on a STATE_UPDATED / APPLY_ONCE
+    // re-broadcast — otherwise disabling the current domain would flash-invert
+    // then revert. See evaluateAndApply()'s phase-0 block.
+    coldEvaluateDone: false,
     // User-recorded keyboard shortcuts (per action, each a LIST of bindings).
     // Refreshed from settings on every evaluate. Read by the top-frame keydown
     // handler installed at startup. See storage.js.
@@ -313,6 +320,10 @@
     try { revertPreLightened(document); } catch (_) {}
     // Root filter is gone — restore any text we forced light for contrast.
     try { revertRescuedText(document); } catch (_) {}
+    // Root filter is gone — the wrapper counter-filters it triggered are too,
+    // so restore any z-index we lifted to untrap overlays (leaving it would
+    // hand the site a stacking context it never had).
+    try { revertZLifts(document); } catch (_) {}
     // Root filter is gone — drop shadow-root counter-invert styles so shadow
     // media isn't left inverted on the now-uninverted page.
     try { clearShadowStyles(document); } catch (_) {}
@@ -355,6 +366,7 @@
     stopObserver();
     try { revertPreLightened(document); } catch (_) {}
     try { revertRescuedText(document); } catch (_) {}
+    try { revertZLifts(document); } catch (_) {}
     try { clearShadowStyles(document); } catch (_) {}
     try { clearLightIslands(document); } catch (_) {}
     state.applied = false;
@@ -672,14 +684,51 @@
       requestAncestorState();
       return;
     }
+
+    // ── Phase 0: optimistic pre-apply BEFORE the service-worker round-trip ────
+    // The round-trip to a (frequently dormant) MV3 service worker is what used
+    // to gate apply() and paint white on first load. Hoisting the invert above
+    // the await removes that latency so the dark theme is on screen at first
+    // paint. One-shot via coldEvaluateDone so a later STATE_UPDATED / APPLY_ONCE
+    // re-broadcast never re-fires the optimistic invert on a page the user just
+    // turned off. Gated by the cheap, layout-free quickPageLightness() probe: we
+    // skip the invert ONLY when the page already announces itself dark (a
+    // declared color-scheme or an inline dark base background), because inverting
+    // an already-dark page flashes it LIGHT — the one flash worse than the brief
+    // dark flash we accept on the minority of disabled/dark pages. Light or
+    // unknown pages (the vast majority) are inverted now; the post-round-trip
+    // reconcile below and the later grid sampling in reevaluate() correct the rest.
+    let optimisticThisCall = false;
+    if (!state.coldEvaluateDone) {
+      state.coldEvaluateDone = true;
+      if (window === window.top && quickPageLightness() !== "dark") {
+        state.lastEnabledRequest = true;
+        optimisticThisCall = true;
+        apply();
+      }
+    }
+
     let resp;
     try {
       resp = await chrome.runtime.sendMessage({
         type: "GET_STATE_FOR_URL",
         url: location.href
       });
-    } catch (_) { return; }
-    if (!resp || !resp.ok) return;
+    } catch (_) {
+      resp = undefined;
+    }
+    if (!resp || !resp.ok) {
+      // The worker never answered (cold-start failure, or the extension was
+      // reloaded mid-navigation). If phase 0 optimistically inverted IN THIS
+      // CALL, don't leave the page stuck dark — tear it back down to native.
+      // But a LATER re-invocation (STATE_UPDATED, an ancestor's re-broadcast)
+      // hitting a dead worker must NOT tear down a legitimately applied theme
+      // — e.g. a confirmed-dark subframe after the extension was reloaded
+      // would flash back to blinding light with no way to re-apply. The
+      // pre-phase-0 behaviour for that case was a silent no-op; keep it.
+      if (optimisticThisCall && state.applied) disableForPage();
+      return;
+    }
     // Keep the bound shortcuts current even on pages where we apply nothing
     // (disabled host, master off) — the user must still be able to turn dark
     // mode back ON via the keyboard. Set before any early return.

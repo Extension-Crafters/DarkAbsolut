@@ -17,7 +17,7 @@
   const {
     ORIG_ATTR, ORIG_COLOR_ATTR, BG_IMAGE_ATTR, BG_ICON_ATTR,
     NATIVE_DARK_ATTR, NATIVE_LIGHT_ATTR, RESCUE_COLOR_ATTR, LIGHT_ICON_ATTR,
-    INVERT_MEDIA_ATTR
+    INVERT_MEDIA_ATTR, ZLIFT_ATTR, ZLIFT_ORIG_ATTR
   } = DA;
 
   // Minimum fraction of the viewport area a subtree must cover before we
@@ -79,24 +79,52 @@
     return false;
   }
 
+  // A positioned child that FLOATS above the wrapper rather than composing its
+  // in-flow content: absolutely/fixed-positioned with an explicit stacking
+  // order (z-index >= 1), or escaping the wrapper's own box (a date-picker
+  // popover jutting out of a dark search header). Such transient UI is not
+  // the wrapper's identity and must not veto darknative tagging — otherwise a
+  // REPROCESS of the wrapper while its popup is open (any class/style flip,
+  // including our own z-lift below) strips the tag and flips the whole dark
+  // region light. The genuine veto case — a dark frame around a large white
+  // in-flow content panel — is untouched.
+  //
+  // Consulted ONLY when the caller supplies the wrapper's rect (the
+  // tagNativeDarkBg veto). shouldReinvertBgImage's lightCard corroboration
+  // calls hasVisibleLightDescendant WITHOUT a rect and must keep counting
+  // positioned light panels (a layered hero card's white inner panel is the
+  // corroboration that the gradient element is a light card, not a dark one).
+  function isFloatingOverlayChild(child, cs, outerRect) {
+    if (cs.position !== "absolute" && cs.position !== "fixed") return false;
+    const z = parseInt(cs.zIndex, 10);
+    if (Number.isFinite(z) && z >= 1) return true;
+    let r;
+    try { r = child.getBoundingClientRect(); } catch (_) { return false; }
+    const pad = 8;
+    return r.left < outerRect.left - pad || r.top < outerRect.top - pad ||
+           r.right > outerRect.right + pad || r.bottom > outerRect.bottom + pad;
+  }
+
   // Returns true if any visible (not display:none/hidden) direct or nested
   // child up to `depth` levels has a light opaque background that is LARGE
   // enough (>= `minArea` px²) to dominate the wrapper. Used to detect wrapper
   // elements whose counter-filter would double-invert a white panel inside
   // them back to white (the cascade problem). A small light widget doesn't
-  // count — see LIGHT_CHILD_VETO_RATIO.
-  function hasVisibleLightDescendant(el, depth, minArea) {
+  // count — see LIGHT_CHILD_VETO_RATIO. Floating overlays (open popovers)
+  // don't count either — see isFloatingOverlayChild.
+  function hasVisibleLightDescendant(el, depth, minArea, outerRect) {
     for (const child of el.children) {
       let cs;
       try { cs = getComputedStyle(child); } catch (_) { continue; }
       if (cs.display === "none" || cs.visibility === "hidden") continue;
+      if (outerRect && isFloatingOverlayChild(child, cs, outerRect)) continue;
       const c = parseColor(cs.backgroundColor);
       if (c && c.a > 0.4 && luminance(c) > 0.50) {
         if (!minArea) return true;
         let r; try { r = child.getBoundingClientRect(); } catch (_) { r = null; }
         if (r && r.width * r.height >= minArea) return true;
       }
-      if (depth > 1 && hasVisibleLightDescendant(child, depth - 1, minArea)) return true;
+      if (depth > 1 && hasVisibleLightDescendant(child, depth - 1, minArea, outerRect)) return true;
     }
     return false;
   }
@@ -115,8 +143,11 @@
     const maxSat = nativeDarkMaxSat(lum);
     const sat = DA.colors.saturation(c);
     if (lum < 0.10 && sat < maxSat) {
-      let wrapperArea = 0;
-      try { const r = el.getBoundingClientRect(); wrapperArea = r.width * r.height; } catch (_) {}
+      let wrapperArea = 0, wrapperRect = null;
+      try {
+        wrapperRect = el.getBoundingClientRect();
+        wrapperArea = wrapperRect.width * wrapperRect.height;
+      } catch (_) {}
       // A large SEMI-TRANSPARENT dark surface is a scrim/elevation overlay, not
       // a real dark theme region. Counter-inverting it washes it to light gray
       // (Gmail's prefers-dark reading pane), so neutralise it instead — making
@@ -142,7 +173,7 @@
       // widget inside a big dark wrapper must not veto tagging — otherwise the
       // whole dark area flips to light. Scale the veto to the wrapper's size.
       const minLightArea = wrapperArea * LIGHT_CHILD_VETO_RATIO;
-      if (hasVisibleLightDescendant(el, 3, minLightArea)) return false;
+      if (hasVisibleLightDescendant(el, 3, minLightArea, wrapperRect)) return false;
       // Don't tag a wrapper that fronts large RASTER media. That media is
       // counter-inverted by its own rule; wrapping it in another counter-invert
       // triple-inverts it into a colour-negative — e.g. an image carousel whose
@@ -157,6 +188,130 @@
       return true;
     }
     return false;
+  }
+
+  // ── Trapped-overlay z-index rescue ───────────────────────────────────────
+  // Any non-none CSS filter creates a stacking context, which TRAPS every
+  // descendant's z-index inside it. Our counter-invert on a tagged wrapper
+  // ([darknative]/[bg]) therefore breaks sites whose popovers are nested in
+  // that wrapper but rely on a high z-index resolving in the ROOT stacking
+  // context to paint above later-DOM content (Skyscanner: the calendar
+  // popover, z-index:900, nested in the dark search hero — counter-inverted
+  // airline-logo <img>s and later cards painted OVER the open calendar,
+  // making dates unclickable; same pattern on booking.com). No CSS on the
+  // descendant can escape an ancestor's stacking context, so we lift the
+  // WRAPPER itself to the overlay's z-index (inline style, saved/restored
+  // like the scrim/pre-lighten pattern): the wrapper then competes at the
+  // level the popup natively painted at, and the popup — topmost inside the
+  // wrapper — is back on top. Using the overlay's OWN z-index rather than a
+  // huge constant keeps genuinely-higher site overlays (portaled modals,
+  // dialogs) above the lifted region.
+  //
+  // Only wrappers with NO native stacking context are lifted: one that
+  // already had a numeric z-index / transform / reduced opacity trapped the
+  // overlay with or without DarkAbsolut, and the site designed for that.
+
+  // Ignore positioned micro-widgets (badges, notification dots) — a real
+  // popup/dropdown/panel is comfortably bigger than this.
+  const OVERLAY_MIN_AREA = 4000; // px²
+
+  function liftWrapper(w, z, wcs) {
+    if (w === document.documentElement || w === document.body) return;
+    const prev = parseInt(w.getAttribute(ZLIFT_ATTR) || "", 10);
+    const hasLift = Number.isFinite(prev);
+    // Already lifted at least this high and SOME inline z-index is still in
+    // place. Deliberately not compared to our recorded value: a framework
+    // that wiped the style attribute leaves it empty (re-assert below), while
+    // a site that actively set its OWN inline z-index is respected — stomping
+    // an explicit site value is worse than losing the lift.
+    if (hasLift && prev >= z && w.style.getPropertyValue("z-index") !== "") return;
+    if (!hasLift) {
+      // Native stacking context → our filter changed nothing; leave it alone.
+      if (wcs.zIndex !== "auto" || wcs.transform !== "none" ||
+          parseFloat(wcs.opacity) < 1 || wcs.isolation === "isolate") return;
+      // Save the original INLINE values (usually empty) for restore. "|" is
+      // safe as a separator — neither CSS value can contain it.
+      w.setAttribute(ZLIFT_ORIG_ATTR,
+        (w.style.getPropertyValue("position") || "") + "|" +
+        (w.style.getPropertyValue("z-index") || ""));
+    }
+    const target = hasLift ? Math.max(prev, z) : z;
+    // z-index needs the wrapper positioned; keep whatever positioning the
+    // site gave it (relative/sticky/…) and only promote static.
+    if (wcs.position === "static") w.style.setProperty("position", "relative");
+    w.style.setProperty("z-index", String(target));
+    w.setAttribute(ZLIFT_ATTR, String(target));
+    // (These inline writes re-enqueue w via the style-attribute observer;
+    // the re-process is a no-op because the lift is already recorded.)
+  }
+
+  // Called from processElement for every element: when el is a sizeable
+  // positioned overlay with an explicit z-index, lift every counter-filtered
+  // wrapper on its ancestor chain. Runs on the mutation re-analysis path, so
+  // a popup that MOUNTS (or is unhidden) inside an already-tagged wrapper is
+  // caught within one throttle window.
+  function maybeLiftTrappedOverlay(el, cs) {
+    // Wrapper counter-filters only exist while root inversion is on — the
+    // [bg]/[darknative] rules are gated on html[data-darkabsolut="on"].
+    if (document.documentElement.getAttribute(DA.ATTR) !== "on") return;
+    if (cs.position !== "absolute" && cs.position !== "fixed") return;
+    const z = parseInt(cs.zIndex, 10);
+    if (!Number.isFinite(z) || z < 1) return;
+    if (cs.display === "none" || cs.visibility === "hidden") return;
+    // Cheap attribute-only ancestor scan FIRST; getBoundingClientRect forces
+    // layout, so pay it only when a tagged wrapper actually exists above us.
+    const wrappers = [];
+    let cur = el.parentElement, hops = 0;
+    while (cur && cur !== document.documentElement && hops++ < 200) {
+      if (cur.hasAttribute(NATIVE_DARK_ATTR) || cur.hasAttribute(BG_IMAGE_ATTR)) {
+        wrappers.push(cur);
+      }
+      cur = cur.parentElement;
+    }
+    if (!wrappers.length) return;
+    let r;
+    try { r = el.getBoundingClientRect(); } catch (_) { return; }
+    if (r.width * r.height < OVERLAY_MIN_AREA) return;
+    // Lift every counter-filtered wrapper up the chain (nested darknative is
+    // prevented, but [bg] wrappers can nest). The computed-filter check keeps
+    // this exact: tags whose filter is neutralised by a more specific rule
+    // (e.g. [bg] inside [darknative]) create no stacking context and must not
+    // be turned into one by a lift.
+    for (const w of wrappers) {
+      let wcs = null;
+      try { wcs = getComputedStyle(w); } catch (_) {}
+      if (wcs && wcs.filter && wcs.filter !== "none") liftWrapper(w, z, wcs);
+    }
+  }
+
+  function revertZLiftOn(el) {
+    const orig = el.getAttribute(ZLIFT_ORIG_ATTR);
+    el.removeAttribute(ZLIFT_ATTR);
+    el.removeAttribute(ZLIFT_ORIG_ATTR);
+    const sep = orig == null ? -1 : orig.indexOf("|");
+    const origPos = sep >= 0 ? orig.slice(0, sep) : "";
+    const origZ = sep >= 0 ? orig.slice(sep + 1) : "";
+    el.style.removeProperty("position");
+    if (origPos) el.style.setProperty("position", origPos);
+    el.style.removeProperty("z-index");
+    if (origZ) el.style.setProperty("z-index", origZ);
+  }
+
+  function revertZLifts(root) {
+    const scope = root && root.querySelectorAll ? root : document;
+    const els = scope.querySelectorAll(`[${ZLIFT_ATTR}]`);
+    for (const el of els) revertZLiftOn(el);
+    // Lifts can be recorded INSIDE open shadow roots too (the shadow-scoped
+    // stylesheet counter-filters [darknative]/[bg] there, and processShadowRoot
+    // runs the same pipeline), but querySelectorAll doesn't pierce the
+    // boundary — recurse like clearShadowStyles does so disable leaves no
+    // inline position/z-index behind.
+    let i = 0;
+    const all = scope.querySelectorAll("*");
+    for (const el of all) {
+      if (i++ > 5000) break;
+      if (el.shadowRoot) revertZLifts(el.shadowRoot);
+    }
   }
 
   // Absolute chroma (max−min over the RGB channels, 0..255) below which a
@@ -993,9 +1148,20 @@
       // A large LIGHT canvas (the Google Maps map surface) is darkened WITH the
       // theme instead of kept true-colour; a dark canvas keeps its true colours.
       if (el.tagName === "CANVAS") classifyMapCanvas(el, false);
+      // A positioned high-z overlay nested in a counter-filtered wrapper is
+      // trapped by the wrapper's filter-induced stacking context — lift the
+      // wrapper so the overlay still paints above later-DOM content
+      // (the Skyscanner/booking.com calendar popover).
+      maybeLiftTrappedOverlay(el, cs);
       if (tagNativeDarkBg(el, cs)) return;
       if (el.hasAttribute(NATIVE_DARK_ATTR)) {
         el.removeAttribute(NATIVE_DARK_ATTR);
+      }
+      // Both counter-filter tags are gone → the wrapper has no filter, so a
+      // recorded z-lift would leave behind a stacking context the site never
+      // had. Restore its original stacking.
+      if (el.hasAttribute(ZLIFT_ATTR) && !el.hasAttribute(BG_IMAGE_ATTR)) {
+        revertZLiftOn(el);
       }
       preLightenIfSaturated(el, cs);
       // Last: rescue text that still renders dark-on-dark after all the
@@ -1315,6 +1481,7 @@
     tagNativeDarkBg,
     preLightenIfSaturated,
     revertPreLightened,
+    revertZLifts,
     rescueTextColor,
     revertRescuedText,
     processElement,

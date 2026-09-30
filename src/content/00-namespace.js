@@ -33,3 +33,11 @@ DA.LIGHT_ICON_ATTR = "data-darkabsolut-lighticon";
 // it keeps its real colours. Decided per-sample so it self-corrects when the map
 // switches between light and satellite/dark styles.
 DA.INVERT_MEDIA_ATTR = "data-darkabsolut-invertmedia";
+// A counter-filtered wrapper ([darknative]/[bg]) whose filter-induced stacking
+// context traps a positioned overlay's z-index (the Skyscanner calendar
+// popover inside the dark search hero). The wrapper's own z-index is lifted
+// (inline style) to the overlay's so the overlay keeps painting above
+// later-DOM content. Value = the z-index applied; the -orig attr preserves the
+// element's original inline position/z-index for restore on disable.
+DA.ZLIFT_ATTR = "data-darkabsolut-zlift";
+DA.ZLIFT_ORIG_ATTR = "data-darkabsolut-zlift-orig";
