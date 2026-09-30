@@ -10,7 +10,8 @@
   "use strict";
 
   const {
-    ensureStyle, ensureAttributeAndStyle, setImageInversionDisabled, setEnhanceContrast
+    ensureStyle, ensureAttributeAndStyle, setImageInversionDisabled, setEnhanceContrast,
+    removeFilterDefs
   } = DA.styles;
   const {
     pageDeclaresDarkScheme,
@@ -363,6 +364,7 @@
     setEnhanceContrast(false);
     const style = document.getElementById(DA.STYLE_ID);
     if (style) style.remove();
+    removeFilterDefs();
     stopObserver();
     try { revertPreLightened(document); } catch (_) {}
     try { revertRescuedText(document); } catch (_) {}
@@ -554,7 +556,9 @@
           }
         }
         for (const n of m.removedNodes) {
-          if (n.nodeType === 1 && n.id === DA.STYLE_ID &&
+          // Our stylesheet, or the SVG holding the accent filter (a dangling
+          // url(#…) reference would drop the accent rendering).
+          if (n.nodeType === 1 && (n.id === DA.STYLE_ID || n.id === DA.FILTER_DEFS_ID) &&
               state.applied && state.lastEnabledRequest) {
             ensureAttributeAndStyle();
           }

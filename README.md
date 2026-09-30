@@ -62,6 +62,14 @@ switch and per-domain/subdomain disable.
   intentionally *not* counter-inverted so HTML content embedded in same-origin
   iframes (e.g. Gmail message bodies, compose windows) is darkened along with
   the rest of the page.
+- **Colour-coded information survives the inversion**: small glyphs whose
+  colour carries meaning (rating stars, status icons — sprites, SVGs, mask
+  icons) go through an SVG "accent" filter that keeps bright colours lit in
+  their own hue while their neutral parts invert with the theme, so a gold star
+  stays gold and an empty one turns faint instead of both ending up white.
+  Low-contrast coloured text is lifted along its own hue, text a site drew
+  faint on purpose stays faint, and small saturated fills (buttons, badges,
+  rating bars) keep their colour instead of being flattened to black.
 - **Already-dark detection**: respects `color-scheme: dark` declared by the
   site and measures the effective background luminance of `html`/`body`.
 - **Popup UI**:
@@ -164,6 +172,8 @@ All test assets live under `tests/`:
 
 ```text
 tests/test-extension.js             End-to-end: loads the unpacked extension, checks invert on/off
+tests/test-color-model.js           Page-filter colour model vs the browser, accent filter + helpers
+tests/test-color-coding.js          Colour-coded info (rating stars, accents, faint text) survives
 tests/test-dark.js                  Playwright runner (navigates a real page)
 tests/test-core.js                  Standalone inversion core, injected by the runner
 tests/visual-audit.js               Loads the real extension, screenshots fixtures (+ live

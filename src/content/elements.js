@@ -11,13 +11,14 @@
   "use strict";
 
   const {
-    parseColor, luminance, rgbToHsl, hslToRgbString, nativeDarkMaxSat
+    parseColor, luminance, rgbToHsl, hslToRgbString, nativeDarkMaxSat,
+    chroma, filterLuma, contrastRatio, toHex, accentFillSource, accentTextSource
   } = DA.colors;
 
   const {
     ORIG_ATTR, ORIG_COLOR_ATTR, BG_IMAGE_ATTR, BG_ICON_ATTR,
     NATIVE_DARK_ATTR, NATIVE_LIGHT_ATTR, RESCUE_COLOR_ATTR, LIGHT_ICON_ATTR,
-    INVERT_MEDIA_ATTR, ZLIFT_ATTR, ZLIFT_ORIG_ATTR
+    INVERT_MEDIA_ATTR, ZLIFT_ATTR, ZLIFT_ORIG_ATTR, ACCENT_ATTR, BG_SRC_ATTR
   } = DA;
 
   // Minimum fraction of the viewport area a subtree must cover before we
@@ -74,6 +75,19 @@
     let cur = el.parentElement;
     while (cur && cur !== document.documentElement) {
       if (cur.hasAttribute(NATIVE_DARK_ATTR)) return true;
+      cur = cur.parentElement;
+    }
+    return false;
+  }
+
+  // True when an ancestor carries one of our counter-invert tags ([bg] or
+  // [darknative]), i.e. the element does NOT render under the page filter
+  // alone. The accent treatments are computed for exactly one inversion, so
+  // they stay off inside such wrappers.
+  function hasCounterInvertedAncestor(el) {
+    let cur = el.parentElement;
+    while (cur && cur !== document.documentElement) {
+      if (cur.hasAttribute(NATIVE_DARK_ATTR) || cur.hasAttribute(BG_IMAGE_ATTR)) return true;
       cur = cur.parentElement;
     }
     return false;
@@ -164,6 +178,7 @@
       if (c.a < SCRIM_MIN_OPAQUE_ALPHA && wrapperArea >= SCRIM_MIN_AREA && !fgIsLight) {
         if (!el.hasAttribute(ORIG_ATTR)) {
           el.setAttribute(ORIG_ATTR, el.style.getPropertyValue("background-color") || "");
+          el.setAttribute(BG_SRC_ATTR, cs.backgroundColor);
           el.style.setProperty("background-color", "transparent", "important");
         }
         return false;
@@ -326,6 +341,55 @@
   // semantic light fills (success #d4edda 25, info #d1ecf1 32, warn #fff3cd 50).
   const MIN_TINT_CHROMA = 24;
 
+  // Largest area (px²) a saturated fill may cover and still be an ACCENT (a
+  // button, chip, badge, status dot) rather than a SURFACE (header, banner,
+  // sidebar, hero) that should go dark with the page.
+  const ACCENT_FILL_MAX_AREA = 20000;
+  // A fill this thin is a line/bar indicator at any length (progress bar, tab
+  // underline, rating-distribution bar).
+  const ACCENT_FILL_MAX_THICKNESS = 16;
+  // Min rendered label/fill contrast for a small fill to keep its accent
+  // rendering; below it the surface path (with its forced label colour) wins.
+  const ACCENT_LABEL_MIN_CONTRAST = 3.0;
+
+  function isAccentSizedFill(el) {
+    let r;
+    try { r = el.getBoundingClientRect(); } catch (_) { return false; }
+    if (!r.width || !r.height) return false;
+    return r.width * r.height <= ACCENT_FILL_MAX_AREA ||
+           Math.min(r.width, r.height) <= ACCENT_FILL_MAX_THICKNESS;
+  }
+
+  // Would the fill's own label stay readable under the plain page filter? A
+  // label designed with poor contrast (white on yellow) comes out dark on dark
+  // brown; such fills keep the surface treatment, which forces a dark label.
+  function accentLabelReadable(el, c, cs) {
+    if (!hasTextContent(el)) return true;
+    const tc = parseColor(cs.color);
+    if (!tc || tc.a < 0.3) return true;
+    const { pageFilter } = DA.colors;
+    return contrastRatio(luminance(pageFilter(tc)), luminance(pageFilter(c))) >=
+      ACCENT_LABEL_MIN_CONTRAST;
+  }
+
+  // A BRIGHT, text-free accent fill (a gold rating bar, a lime status dot) is
+  // pushed dark by the plain page filter (gold → brown, nearly the tone of the
+  // track it sits on). Rewrite its background to the source colour the filter
+  // renders as the SAME hue, lit (DA.colors.accentFillSource). Mid/dark tones
+  // need nothing — the filter already renders them lighter with their hue.
+  function accentFill(el, c, cs) {
+    if (hasTextContent(el) || hasCounterInvertedAncestor(el)) return;
+    // Its own counter-invert tag means it doesn't render through the page
+    // filter alone — the source colour below would be wrong.
+    if (el.hasAttribute(BG_IMAGE_ATTR) || el.hasAttribute(NATIVE_DARK_ATTR)) return;
+    const src = accentFillSource(c);
+    if (!src) return;
+    el.setAttribute(ORIG_ATTR, el.style.getPropertyValue("background-color") || "");
+    el.setAttribute(BG_SRC_ATTR, cs.backgroundColor);
+    el.style.setProperty("background-color",
+      `rgba(${src.r}, ${src.g}, ${src.b}, ${c.a == null ? 1 : c.a})`, "important");
+  }
+
   // Saturated mid-lightness backgrounds (e.g. brand blue #459cd5, l~55%)
   // are barely darkened by `invert + hue-rotate(180)`. Pre-lighten the bg
   // to ~92% lightness so the html-level invert flips it to ~8% (true dark)
@@ -334,6 +398,12 @@
   function preLightenIfSaturated(el, cs) {
     if (el.hasAttribute(ORIG_ATTR)) return;
     if (hasNativeDarkAncestor(el)) return;
+    // An accent glyph's fill (a chromatic mask star) is handled per pixel by
+    // the accent filter; rewriting it would apply the correction twice.
+    if (el.hasAttribute(ACCENT_ATTR)) return;
+    // A light-icon glyph is counter-inverted to keep its (mask) fill colour —
+    // rewriting that fill would defeat the rescue.
+    if (el.hasAttribute(LIGHT_ICON_ATTR)) return;
     const c = parseColor(cs.backgroundColor);
     if (!c || c.a < 0.5) return;
     const hsl = rgbToHsl(c);
@@ -341,7 +411,18 @@
 
     let targetS, targetL = 0.92;
     if (hsl.s >= 0.30 && hsl.l <= 0.85) {
-      // Saturated mid-lightness background.
+      // A SMALL saturated fill is an accent, not a surface: a primary button,
+      // a badge, a progress/rating bar, a status dot. Crushing it to near-black
+      // like the page around it erases what its colour encodes (Google Maps:
+      // the filled primary action looked like the tinted secondary ones). The
+      // plain page filter keeps its hue and mirrors its luma around 0.5, so a
+      // mid-tone accent stays one (teal button → light teal, dark label — the
+      // Material dark pattern); a bright text-free indicator is kept lit.
+      if (isAccentSizedFill(el) && accentLabelReadable(el, c, cs)) {
+        accentFill(el, c, cs);
+        return;
+      }
+      // Saturated mid-lightness surface.
       targetS = Math.min(hsl.s, 0.55);
     } else if (hsl.s >= 0.30 && hsl.l > 0.85) {
       // Near-white with a real color tint. Keep saturation so the hue
@@ -371,6 +452,7 @@
 
     const lightened = hslToRgbString({ h: hsl.h, s: targetS, l: targetL });
     el.setAttribute(ORIG_ATTR, el.style.getPropertyValue("background-color") || "");
+    el.setAttribute(BG_SRC_ATTR, cs.backgroundColor);
     el.style.setProperty("background-color", lightened, "important");
 
     // Only force dark text if the original text was light (would become
@@ -393,6 +475,7 @@
       el.style.removeProperty("background-color");
       if (orig) el.style.setProperty("background-color", orig);
       el.removeAttribute(ORIG_ATTR);
+      el.removeAttribute(BG_SRC_ATTR);
       if (el.hasAttribute(ORIG_COLOR_ATTR)) {
         const origColor = el.getAttribute(ORIG_COLOR_ATTR);
         el.style.removeProperty("color");
@@ -650,9 +733,19 @@
   // enough to justify forcing it light (WCAG AA large-text threshold).
   const RESCUE_MIN_CONTRAST = 3.0;
 
-  function invertColor(c) {
-    return { r: 255 - c.r, g: 255 - c.g, b: 255 - c.b, a: c.a };
-  }
+  // Chroma (0..1) at or above which text is COLOUR-CODED (a gold ★, an amber
+  // "limited", a lime "in stock"): it is rescued along its own hue rather than
+  // to neutral light.
+  const TEXT_ACCENT_MIN_CHROMA = 0.25;
+  // Contrast colour-coded text is lifted to on its dark backdrop.
+  const TEXT_ACCENT_CONTRAST = 4.5;
+  // The page filter doesn't preserve WCAG contrast exactly; a rendering within
+  // this factor of the designed contrast counts as "carried over".
+  const FAINT_TOLERANCE = 0.9;
+  // Below this DESIGNED contrast the text was effectively invisible on the
+  // backdrop we computed — so that backdrop isn't what the user saw (a theme
+  // leak, an image or scrim we can't read): no faint-by-design claim then.
+  const FAINT_MIN_DESIGNED_CONTRAST = 1.25;
 
   // Parity of DarkAbsolut invert filters in the element's ancestor-or-self
   // chain. The page filter on <html> contributes 1 when applied; each counter-
@@ -674,9 +767,43 @@
     return n % 2;
   }
 
-  // Rendered luminance of a source colour given its chain parity.
+  // Rendered luminance of a source colour given its chain parity (exact page-
+  // filter model — see DA.colors.pageFilter).
   function displayedLum(c, parity) {
-    return parity ? luminance(invertColor(c)) : luminance(c);
+    return parity ? luminance(DA.colors.pageFilter(c)) : luminance(c);
+  }
+
+  // The background the site designed this element's text against, in ORIGINAL
+  // colours: the first opaque background up the tree, reading through our own
+  // background rewrites (BG_SRC_ATTR). Null when an ancestor paints a
+  // background image (its colour is unknowable) — nothing can be claimed then.
+  function originalBackdrop(el) {
+    let cur = el, hops = 0;
+    while (cur && cur.nodeType === 1 && hops++ < 200) {
+      let cs;
+      try { cs = getComputedStyle(cur); } catch (_) { return null; }
+      const c = parseColor(cur.getAttribute(BG_SRC_ATTR) || cs.backgroundColor);
+      if (c && c.a >= 0.5) return c;
+      if (cur !== el && cs.backgroundImage && cs.backgroundImage !== "none") return null;
+      if (cur === document.documentElement) break;
+      cur = cur.parentElement;
+    }
+    return { r: 255, g: 255, b: 255, a: 1 }; // default canvas
+  }
+
+  // Low contrast that the SITE designed (an empty-star ★, a hint, disabled
+  // text) and the page filter merely carried over. Such text is meant to be
+  // faint; forcing it light inverts the hierarchy — the empty star outshines
+  // the filled ones and a rating reads 5/5.
+  function isFaintByDesign(el, src, renderedContrast) {
+    const bg = originalBackdrop(el);
+    if (!bg) return false;
+    const a = src.a == null ? 1 : src.a;
+    const fg = { r: src.r * a + bg.r * (1 - a), g: src.g * a + bg.g * (1 - a),
+                 b: src.b * a + bg.b * (1 - a) };
+    const designed = contrastRatio(luminance(fg), luminance(bg));
+    return designed >= FAINT_MIN_DESIGNED_CONTRAST && designed < RESCUE_MIN_CONTRAST &&
+           renderedContrast >= designed * FAINT_TOLERANCE;
   }
 
   // Rendered luminance of the surface the element's text actually sits on.
@@ -763,17 +890,31 @@
     else if (wasTagged) el.removeAttribute(RESCUE_COLOR_ATTR);
   }
 
-  // Returns "1"/"2" if the element's text renders dark on a dark surface and
-  // should be forced light, else null. Pure decision — no DOM writes.
+  // Returns the rescue value if the element's text renders dark on a dark
+  // surface, else null: "1"/"2" = neutral light, "c<hex>" = colour-coded text
+  // lifted along its own hue (the hex joins the stylesheet palette). Decides
+  // only; the sole side effect is registering a palette colour.
   function decideRescue(el, src, parity) {
     const textLum = displayedLum(src, parity);
     if (textLum >= 0.5) return null; // already renders light — nothing to fix
     const bgLum = effectiveDisplayedBg(el);
     if (bgLum == null) return null;            // unknown backdrop — don't guess
     if (bgLum >= RESCUE_DARK_BG_MAX) return null; // backdrop isn't dark — leave it
-    const contrast =
-      (Math.max(textLum, bgLum) + 0.05) / (Math.min(textLum, bgLum) + 0.05);
+    const contrast = contrastRatio(textLum, bgLum);
     if (contrast >= RESCUE_MIN_CONTRAST) return null; // readable enough
+    const field = isTextField(el);
+    // Colour-coded text keeps its hue. The page filter pushes bright accents
+    // dark (a gold ★ → brown); a neutral rescue would then paint every star of
+    // a rating the same white, filled or empty.
+    if (!field && chroma(src) >= TEXT_ACCENT_MIN_CHROMA) {
+      const lit = accentTextSource(src, bgLum, TEXT_ACCENT_CONTRAST, !!parity);
+      if (lit) {
+        const hex = toHex(lit);
+        if (DA.styles.requestTextColor(hex)) return "c" + hex;
+      }
+    }
+    // Form fields are exempt: whatever the design, typed text must read.
+    if (!field && isFaintByDesign(el, src, contrast)) return null;
     return parity ? "1" : "2";
   }
 
@@ -866,9 +1007,6 @@
     return p;
   }
 
-  function contrastRatio(a, b) {
-    return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
-  }
   // Below this rendered contrast a monochrome icon/logo is unreadable on its bg.
   const ICON_MIN_CONTRAST = 3.0;
 
@@ -916,50 +1054,292 @@
     else getIconStats(url).then(decide);
   }
 
-  // Light vector-SVG UI icon rescue. A mixed prefers-color-scheme:dark page (a
-  // light-themed Gmail under an OS that prefers dark) serves some chrome glyphs
-  // ALREADY light; the page-level invert flips those to black-on-dark
-  // (invisible). Tag a small, light, vector SVG so CSS counter-inverts it back
-  // to light — the mirror of the dark-bg-icon rescue (classifyBgIcon).
-  function classifyLightIconSvg(el, cs) {
+  // ── Colour-coded glyphs ──────────────────────────────────────────────────
+  // A small glyph's colour often IS the information: gold vs gray rating stars,
+  // a red/green status icon. The page invert keeps hue but mirrors luma, so a
+  // bright accent comes out dark (gold → brown), and the counter-invert can't
+  // restore it either (the round trip clamps it to pale peach) — while a light
+  // gray "off" glyph is kept light by the counter-invert or the light-icon
+  // rescue. Filled and empty stars then look alike. Such glyphs are tagged
+  // ACCENT and rendered through the SVG accent filter (styles.js): neutral
+  // pixels invert with the theme, bright chromatic pixels stay lit in their own
+  // hue. Per-pixel, so it needs no pixel read-back — the Google Maps star
+  // sprites are cross-origin without CORS.
+
+  function setAccent(el, on) {
+    if (on) {
+      if (el.getAttribute(ACCENT_ATTR) !== "1") el.setAttribute(ACCENT_ATTR, "1");
+      DA.styles.ensureFilterDefs();
+    } else if (el.hasAttribute(ACCENT_ATTR)) {
+      el.removeAttribute(ACCENT_ATTR);
+    }
+  }
+
+  // The accent filter is computed for exactly one inversion (the page filter),
+  // and its url(#…) reference only resolves in the main document tree.
+  function accentContextOk(el) {
+    return el.getRootNode() === document && !hasCounterInvertedAncestor(el);
+  }
+
+  function isChromaticPaint(c) { return chroma(c) >= TEXT_ACCENT_MIN_CHROMA; }
+  function isBrightChromatic(c) { return isChromaticPaint(c) && filterLuma(c) > 0.5; }
+
+  function maskOf(cs) {
+    return (cs.maskImage && cs.maskImage !== "none") ? cs.maskImage
+         : (cs.webkitMaskImage && cs.webkitMaskImage !== "none") ? cs.webkitMaskImage : null;
+  }
+
+  function isGlyphSized(el) {
+    let r;
+    try { r = el.getBoundingClientRect(); } catch (_) { return false; }
+    return !!r && r.width > 0 && r.height > 0 && Math.max(r.width, r.height) <= LIGHT_ICON_MAX_PX;
+  }
+
+  // A text-free, childless, glyph-sized element painted by its own url()
+  // background image: a sprite glyph. `cover` sizing is excluded — that's a
+  // photo thumbnail/avatar. `keepsColours` = the bg-image heuristic wants it
+  // counter-inverted (true colours); see isStateGlyphRow for when a glyph may
+  // still trade that for the accent rendering. Otherwise it would get the plain
+  // page invert, which the accent filter only improves on (it differs just for
+  // bright chromatic pixels).
+  function isAccentBgGlyph(el, cs, bg, keepsColours) {
+    if (!/url\(/i.test(bg) || /gradient\(/i.test(bg)) return false;
+    if (/\bcover\b/i.test(cs.backgroundSize || "")) return false;
+    if (el.childElementCount || hasTextContent(el)) return false;
+    // A glyph on its own dark plate is a badge the darknative path keeps dark.
+    const plate = parseColor(cs.backgroundColor);
+    if (plate && plate.a >= 0.5 && luminance(plate) < 0.10) return false;
+    if (!isGlyphSized(el)) return false;
+    return !keepsColours || isStateGlyphRow(el, cs);
+  }
+
+  // The background image is ONE glyph scaled to the element's box (the Maps
+  // star: a 14px image on a 14px span), not a cell of a sprite sheet or a tile.
+  function bgFitsBox(cs, r) {
+    const size = (cs.backgroundSize || "").trim().toLowerCase();
+    if (/^(contain|100%( 100%)?)$/.test(size)) return true;
+    const m = /^([\d.]+)px(?: ([\d.]+)px)?$/.exec(size);
+    if (!m) return false;
+    const w = parseFloat(m[1]), h = m[2] ? parseFloat(m[2]) : w;
+    return Math.abs(w - r.width) <= GLYPH_SIZE_TOLERANCE &&
+           Math.abs(h - r.height) <= GLYPH_SIZE_TOLERANCE;
+  }
+
+  // A counter-inverted sprite keeps its TRUE colours, which is what a colour
+  // swatch (Amazon's colour facets: a white swatch must stay white), a
+  // thumbnail or a lone brand icon needs. Only the member of a colour-coded
+  // STATE row trades them for the accent rendering: a single-glyph image
+  // fitted to its box, not rounded (avatars are), among ≥3 same-size sibling
+  // glyphs that REUSE images (filled/half/empty stars; a strip of distinct
+  // thumbnails or swatches doesn't).
+  function isStateGlyphRow(el, cs) {
+    let r;
+    try { r = el.getBoundingClientRect(); } catch (_) { return false; }
+    if (!bgFitsBox(cs, r)) return false;
+    const radius = parseFloat(cs.borderTopLeftRadius) || 0;
+    const radiusPx = /%/.test(cs.borderTopLeftRadius) ? radius / 100 * r.width : radius;
+    if (radiusPx >= 0.4 * Math.min(r.width, r.height)) return false;
+    const row = glyphRow(el, g => {
+      if (g.childElementCount || hasTextContent(g)) return false;
+      let gcs;
+      try { gcs = getComputedStyle(g); } catch (_) { return false; }
+      return /url\(/i.test(gcs.backgroundImage || "");
+    });
+    if (!row) return false;
+    const urls = new Set(row.map(g => firstUrl(getComputedStyle(g).backgroundImage)));
+    return urls.size < row.length;
+  }
+
+  // A mask-image glyph (the shape is the mask, painted in background-color)
+  // whose paint is chromatic — a gold mask star.
+  function isAccentMaskGlyph(el, cs) {
+    if (!maskOf(cs)) return false;
+    const bc = parseColor(cs.backgroundColor);
+    return !!bc && bc.a >= 0.2 && isChromaticPaint(bc) && isGlyphSized(el);
+  }
+
+  // ── Colour-coded glyph rows ──────────────────────────────────────────────
+  // Rating stars, signal bars, step dots: a row of same-sized glyphs whose
+  // members differ by colour. A NEUTRAL light member of such a row is the "off"
+  // state — an empty star beside gold ones. The site drew it faint on a light
+  // page, so it must invert WITH the theme into a faint dark glyph; the light-
+  // icon rescue would keep it light, as bright as the "on" members.
+  const GLYPH_ROW_MIN = 3;
+  const GLYPH_ROW_MAX = 12;
+  const GLYPH_SIZE_TOLERANCE = 2; // px
+
+  // Same-sized glyphs forming el's row (el included), or null. Looks at el's
+  // siblings, or — when el is wrapped alone (<span><svg/></span> ×5) — at the
+  // single glyph inside each of its wrapper's siblings.
+  function glyphRow(el, isGlyph) {
+    let r0;
+    try { r0 = el.getBoundingClientRect(); } catch (_) { return null; }
+    const sameSize = g => {
+      let r;
+      try { r = g.getBoundingClientRect(); } catch (_) { return false; }
+      return Math.abs(r.width - r0.width) <= GLYPH_SIZE_TOLERANCE &&
+             Math.abs(r.height - r0.height) <= GLYPH_SIZE_TOLERANCE;
+    };
+    const collect = (container, unwrap) => {
+      if (!container || container.childElementCount > GLYPH_ROW_MAX * 2) return null;
+      const row = [];
+      for (const ch of container.children) {
+        const g = !unwrap ? ch : (ch.childElementCount === 1 ? ch.firstElementChild : null);
+        if (g && isGlyph(g) && sameSize(g)) row.push(g);
+      }
+      return row.length >= GLYPH_ROW_MIN && row.length <= GLYPH_ROW_MAX && row.includes(el)
+        ? row : null;
+    };
+    const p = el.parentElement;
+    return collect(p, false) ||
+      (p && p.childElementCount === 1 ? collect(p.parentElement, true) : null);
+  }
+
+  const SVG_SHAPES = "path,polygon,circle,rect,ellipse,use,line,polyline";
+
+  // Shape identity of an SVG glyph: viewBox + first shape's geometry. Members
+  // of a rating row share it; a toolbar's different icons don't — so a row of
+  // light toolbar icons with one coloured icon is NOT mistaken for a rating.
+  function svgShapeKey(svg) {
+    let s = null;
+    try { s = svg.querySelector(SVG_SHAPES); } catch (_) {}
+    if (!s) return null;
+    return (svg.getAttribute("viewBox") || "") + "|" + s.tagName + "|" +
+      (s.getAttribute("d") || s.getAttribute("points") || s.getAttribute("href") ||
+       s.getAttribute("xlink:href") || "");
+  }
+
+  // Colours an SVG glyph paints with: its own fill/stroke and those of its
+  // first few shapes (computed, so currentColor is resolved).
+  function svgPaints(svg, cs) {
+    const out = [];
+    const add = v => { const c = parseColor(v); if (c && c.a >= 0.2) out.push(c); };
+    add(cs.fill);
+    if (cs.stroke !== "none") add(cs.stroke);
+    let shapes = [];
+    try { shapes = svg.querySelectorAll(SVG_SHAPES); } catch (_) {}
+    for (let i = 0; i < shapes.length && i < 4; i++) {
+      let s;
+      try { s = getComputedStyle(shapes[i]); } catch (_) { continue; }
+      add(s.fill);
+      if (s.stroke !== "none") add(s.stroke);
+    }
+    return out;
+  }
+
+  function isOffStateSvg(el) {
+    const key = svgShapeKey(el);
+    if (!key) return false;
+    const row = glyphRow(el, g => g.tagName.toLowerCase() === "svg");
+    if (!row) return false;
+    return row.some(m => {
+      if (m === el || svgShapeKey(m) !== key) return false;
+      let mcs;
+      try { mcs = getComputedStyle(m); } catch (_) { return false; }
+      return svgPaints(m, mcs).some(isChromaticPaint);
+    });
+  }
+
+  function isOffStateMask(el, mask) {
+    const row = glyphRow(el, g => {
+      let gcs;
+      try { gcs = getComputedStyle(g); } catch (_) { return false; }
+      return maskOf(gcs) === mask;
+    });
+    if (!row) return false;
+    return row.some(m => {
+      if (m === el) return false;
+      const bc = parseColor(getComputedStyle(m).backgroundColor);
+      return !!bc && bc.a >= 0.2 && isChromaticPaint(bc);
+    });
+  }
+
+  // Sprite rows can only be judged by sampling the siblings' images (async,
+  // cached). Resolves true when a sibling's sprite is colourful.
+  function isOffStateSprite(el) {
+    const row = glyphRow(el, g => {
+      if (g.childElementCount || hasTextContent(g)) return false;
+      let gcs;
+      try { gcs = getComputedStyle(g); } catch (_) { return false; }
+      return /url\(/i.test(gcs.backgroundImage || "");
+    });
+    if (!row) return Promise.resolve(false);
+    const own = firstUrl(getComputedStyle(el).backgroundImage);
+    const urls = new Set();
+    for (const m of row) {
+      if (m === el) continue;
+      const u = firstUrl(getComputedStyle(m).backgroundImage);
+      if (u && u !== own) urls.add(u);
+    }
+    if (!urls.size) return Promise.resolve(false);
+    return Promise.all([...urls].map(getIconStats))
+      .then(stats => stats.some(s => s && s.mono === false));
+  }
+
+  // Small vector-SVG UI glyphs. Two rescues from what the page invert alone
+  // would do:
+  //   • ACCENT — painted in a BRIGHT colour (gold star, amber warning): the
+  //     invert would darken it (gold → brown). The accent filter keeps its hue
+  //     lit while still inverting its neutral parts.
+  //   • LIGHT_ICON — a NEUTRAL glyph that is ALREADY light (a prefers-dark icon
+  //     on a light-themed Gmail): the invert flips it to black-on-dark, so it is
+  //     counter-inverted back to light — unless it is the "off" member of a
+  //     colour-coded row (an empty star), which must stay faint.
+  function classifySvgGlyph(el, cs) {
     if (el.tagName.toLowerCase() !== "svg") return;
-    const clear = () => { if (el.hasAttribute(LIGHT_ICON_ATTR)) el.removeAttribute(LIGHT_ICON_ATTR); };
+    const clear = () => {
+      if (el.hasAttribute(LIGHT_ICON_ATTR)) el.removeAttribute(LIGHT_ICON_ATTR);
+      setAccent(el, false);
+    };
     // Inside a kept-dark wrapper the icon already shows its true (light) colour
     // via the wrapper's counter-invert; a tagged bg-image SVG is handled by the
     // media rules. Don't double-handle either.
     if (el.hasAttribute(BG_IMAGE_ATTR) || hasNativeDarkAncestor(el)) { clear(); return; }
-    let r; try { r = el.getBoundingClientRect(); } catch (_) { clear(); return; }
-    if (!r || r.width === 0 || Math.max(r.width, r.height) > LIGHT_ICON_MAX_PX) { clear(); return; }
+    if (!isGlyphSized(el)) { clear(); return; }
     let hasRaster = false;
     try { hasRaster = !!el.querySelector("image"); } catch (_) {}
     if (hasRaster) { clear(); return; } // raster <image> → covered by media rules
+    if (accentContextOk(el) && svgPaints(el, cs).some(isBrightChromatic)) {
+      if (el.hasAttribute(LIGHT_ICON_ATTR)) el.removeAttribute(LIGHT_ICON_ATTR);
+      setAccent(el, true);
+      return;
+    }
+    setAccent(el, false);
     // Effective paint colour: a non-black explicit fill, else the (currentColor)
     // text colour — what actually paints a currentColor glyph.
     let paint = parseColor(cs.fill);
     const fillBlackish = !paint || paint.a < 0.2 || (paint.r < 24 && paint.g < 24 && paint.b < 24);
     if (fillBlackish) paint = parseColor(cs.color);
-    if (paint && paint.a >= 0.2 && luminance(paint) > LIGHT_ICON_MIN_LUM) {
+    if (paint && paint.a >= 0.2 && luminance(paint) > LIGHT_ICON_MIN_LUM &&
+        !(!isChromaticPaint(paint) && isOffStateSvg(el))) {
       if (!el.hasAttribute(LIGHT_ICON_ATTR)) el.setAttribute(LIGHT_ICON_ATTR, "1");
-    } else {
-      clear();
+    } else if (el.hasAttribute(LIGHT_ICON_ATTR)) {
+      el.removeAttribute(LIGHT_ICON_ATTR);
     }
   }
 
   // Light background-image UI glyph rescue. The bg-image counterpart of
-  // classifyLightIconSvg: a small no-`<img>` element whose background-image
-  // SAMPLES light (Gmail's prefers-dark nav label/folder sprites, served from
-  // gstatic with CORS) would be flipped to black-on-dark by the page invert.
-  // Sample its pixels (async, cached) and counter-invert the light ones.
+  // classifySvgGlyph: a small no-`<img>` element whose background-image SAMPLES
+  // light (Gmail's prefers-dark nav label/folder sprites, served from gstatic
+  // with CORS) would be flipped to black-on-dark by the page invert. Sample its
+  // pixels (async, cached) and counter-invert the light ones — except a
+  // colourful sprite already tagged ACCENT (the accent filter keeps it lit
+  // without the counter-invert's washed-out round trip) and the neutral "off"
+  // member of a colour-coded sprite row (an empty star).
   function classifyLightBgIcon(el, bg) {
     const url = firstUrl(bg);
     if (!url) { if (el.hasAttribute(LIGHT_ICON_ATTR)) el.removeAttribute(LIGHT_ICON_ATTR); return; }
+    const tag = on => {
+      if (!el.isConnected) return;
+      if (on) { if (!el.hasAttribute(LIGHT_ICON_ATTR)) el.setAttribute(LIGHT_ICON_ATTR, "1"); }
+      else if (el.hasAttribute(LIGHT_ICON_ATTR)) el.removeAttribute(LIGHT_ICON_ATTR);
+    };
     const decide = s => {
       if (!el.isConnected) return;
-      if (s && s.lum != null && s.lum > LIGHT_ICON_MIN_LUM) {
-        if (!el.hasAttribute(LIGHT_ICON_ATTR)) el.setAttribute(LIGHT_ICON_ATTR, "1");
-      } else if (el.hasAttribute(LIGHT_ICON_ATTR)) {
-        el.removeAttribute(LIGHT_ICON_ATTR);
-      }
+      if (!s || s.lum == null || s.lum <= LIGHT_ICON_MIN_LUM) { tag(false); return; }
+      if (!s.mono) { tag(!el.hasAttribute(ACCENT_ATTR)); return; }
+      tag(true);
+      isOffStateSprite(el).then(off => { if (off) tag(false); }, () => {});
     };
     if (iconStatsCache.has(url)) decide(iconStatsCache.get(url));
     else getIconStats(url).then(decide);
@@ -974,19 +1354,21 @@
     const clear = () => { if (el.hasAttribute(LIGHT_ICON_ATTR)) el.removeAttribute(LIGHT_ICON_ATTR); };
     const ownBg = cs.backgroundImage;
     const hasOwnBg = ownBg && ownBg !== "none" && /url\(/i.test(ownBg);
-    const mask = (cs.maskImage && cs.maskImage !== "none") ? cs.maskImage
-               : (cs.webkitMaskImage && cs.webkitMaskImage !== "none") ? cs.webkitMaskImage : null;
+    const mask = maskOf(cs);
     const pointer = cs.cursor === "pointer";
     // Not an icon candidate (no own bg-image, no mask, not a clickable glyph that
     // might paint via a pseudo-element) → bail without forcing layout.
     if (!hasOwnBg && !mask && !pointer) { clear(); return; }
-    let r; try { r = el.getBoundingClientRect(); } catch (_) { clear(); return; }
-    if (!r || r.width === 0 || Math.max(r.width, r.height) > LIGHT_ICON_MAX_PX) { clear(); return; }
+    if (!isGlyphSized(el)) { clear(); return; }
     // (a) mask-image glyph: the shape is the mask, painted in background-color.
+    //     A chromatic paint is an accent glyph (processElement tags it); only a
+    //     neutral LIGHT paint needs the counter-invert — unless it's the "off"
+    //     member of a colour-coded row.
     if (mask) {
       const bc = parseColor(cs.backgroundColor);
       if (bc && bc.a >= 0.2) {
-        if (luminance(bc) > LIGHT_ICON_MIN_LUM) {
+        if (!isChromaticPaint(bc) && luminance(bc) > LIGHT_ICON_MIN_LUM &&
+            !isOffStateMask(el, mask)) {
           if (!el.hasAttribute(LIGHT_ICON_ATTR)) el.setAttribute(LIGHT_ICON_ATTR, "1");
         } else clear();
         return;
@@ -1115,11 +1497,22 @@
       // Skipped under "force natural images" (keep everything counter-inverted).
       const isBgIcon = el.tagName === "IMG" && hasBgImage && !forceImages &&
           isBgFrontedImg(el);
+      const isSvg = el.tagName.toLowerCase() === "svg";
+      let accentGlyph = false;
       if (isBgIcon) {
         if (el.hasAttribute(BG_IMAGE_ATTR)) el.removeAttribute(BG_IMAGE_ATTR);
         classifyBgIcon(el, bg);
       } else {
-        if (hasBgImage && (forceImages || shouldReinvertBgImage(el, cs, bg))) {
+        const keepsColours = hasBgImage && (forceImages || shouldReinvertBgImage(el, cs, bg));
+        // A glyph-sized sprite (the Maps rating star) or a chromatic mask glyph
+        // is colour-coded: it renders through the accent filter rather than the
+        // counter-invert (washes gold to peach, keeps an empty star light) or
+        // the plain invert (turns gold brown). SVG glyphs: classifySvgGlyph.
+        accentGlyph = !isSvg && el.tagName !== "IMG" &&
+            ((hasBgImage && !forceImages && isAccentBgGlyph(el, cs, bg, keepsColours)) ||
+             isAccentMaskGlyph(el, cs)) &&
+            accentContextOk(el);
+        if (keepsColours && !accentGlyph) {
           el.setAttribute(BG_IMAGE_ATTR, "1");
         } else if (el.hasAttribute(BG_IMAGE_ATTR)) {
           el.removeAttribute(BG_IMAGE_ATTR);
@@ -1135,13 +1528,15 @@
           el.removeAttribute(BG_ICON_ATTR);
         }
       }
+      if (!isSvg) setAccent(el, accentGlyph);
       // Light UI icon rescue (mixed prefers-dark themes paint some glyphs light;
       // the page invert would flip them to black-on-dark). SVGs read their colour
       // from CSS; other small glyphs are detected via their background-image
       // (sampled), mask-image (glyph = background-color) or a pseudo-element
       // background-image (the Gmail row star) — see classifyLightIconNonSvg.
-      classifyLightIconSvg(el, cs);
-      if (el.tagName !== "IMG" && el.tagName.toLowerCase() !== "svg" &&
+      // SVG glyphs painted in a bright colour are tagged ACCENT there too.
+      classifySvgGlyph(el, cs);
+      if (el.tagName !== "IMG" && !isSvg &&
           !el.hasAttribute(BG_IMAGE_ATTR) && !el.hasAttribute(BG_ICON_ATTR)) {
         classifyLightIconNonSvg(el, cs);
       }
@@ -1153,7 +1548,9 @@
       // wrapper so the overlay still paints above later-DOM content
       // (the Skyscanner/booking.com calendar popover).
       maybeLiftTrappedOverlay(el, cs);
-      if (tagNativeDarkBg(el, cs)) return;
+      // An accent glyph is fully rendered by the accent filter; a darknative
+      // counter-invert on top would fight it.
+      if (!el.hasAttribute(ACCENT_ATTR) && tagNativeDarkBg(el, cs)) return;
       if (el.hasAttribute(NATIVE_DARK_ATTR)) {
         el.removeAttribute(NATIVE_DARK_ATTR);
       }

@@ -101,6 +101,114 @@
     return lum < 0.04 ? 0.80 : lum < 0.10 ? 0.45 : 0.25;
   }
 
+  // ── Page-filter model ────────────────────────────────────────────────────
+  // With the luma weights of the CSS hue-rotate() matrix (Filter Effects spec),
+  // the page filter `invert(1) hue-rotate(180deg)` reduces EXACTLY to a uniform
+  // per-channel shift:
+  //     out = in + (1 − 2·filterLuma(in))        (then clamped to [0,1])
+  // It keeps the chroma vector (hue + colourfulness) and mirrors luma around
+  // 0.5. So mid-tones keep their hue and brightness, but a BRIGHT accent (gold,
+  // yellow, lime) is pushed dark: gold #fbbc04 renders brown rgb(130,67,0). And
+  // a vivid gold can never be displayed under the page filter at all — no
+  // in-gamut source has gold's chroma at the mirrored (low) luma — which is why
+  // counter-inverting a gold icon washes it to pale peach instead of restoring
+  // it. tests/test-color-model.js checks this model pixel-exact in the browser.
+  function filterLuma({ r, g, b }) {
+    return (0.213 * r + 0.715 * g + 0.072 * b) / 255;
+  }
+
+  const clamp255 = v => Math.max(0, Math.min(255, Math.round(v)));
+
+  function pageFilter(c) {
+    const s = 255 * (1 - 2 * filterLuma(c));
+    return { r: clamp255(c.r + s), g: clamp255(c.g + s), b: clamp255(c.b + s),
+             a: c.a == null ? 1 : c.a };
+  }
+
+  // Absolute chroma: max − min channel spread, 0..1. Unlike HSL saturation it
+  // doesn't explode near white or black, so it is the reliable "is this colour
+  // actually colourful" signal (gold star ≈ 0.97, light-gray empty star ≈ 0.06).
+  function chroma({ r, g, b }) {
+    return (Math.max(r, g, b) - Math.min(r, g, b)) / 255;
+  }
+
+  function contrastRatio(l1, l2) {
+    return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+  }
+
+  function toHex({ r, g, b }) {
+    return [r, g, b].map(v => clamp255(v).toString(16).padStart(2, "0")).join("");
+  }
+
+  // A colour with c's hue and as much of its chroma as fits, at filter-luma
+  // `lum`. With `viaFilter` the chroma is also capped so the colour's page-
+  // filtered image (luma 1 − lum) stays in gamut: the result is then a SOURCE
+  // value that the page filter renders as c's hue at luma 1 − lum, unclipped
+  // (no hue drift).
+  function hueKeeping(c, lum, viaFilter) {
+    const L = filterLuma(c);
+    const d = [c.r / 255 - L, c.g / 255 - L, c.b / 255 - L];
+    let k = 1;
+    const fit = l => {
+      for (const di of d) {
+        if (di > 1e-6) k = Math.min(k, (1 - l) / di);
+        else if (di < -1e-6) k = Math.min(k, l / -di);
+      }
+    };
+    fit(lum);
+    if (viaFilter) fit(1 - lum);
+    k = Math.max(0, k);
+    return { r: clamp255((lum + k * d[0]) * 255), g: clamp255((lum + k * d[1]) * 255),
+             b: clamp255((lum + k * d[2]) * 255), a: 1 };
+  }
+
+  // Displayed luma given to a fully chromatic BRIGHT colour by the accent
+  // treatment (the SVG accent filter in styles.js, accentFillSource below):
+  // high enough to read as a lit accent on the dark page, low enough to keep
+  // real chroma (the page filter can only render strong chroma near luma 0.5).
+  // Gold #fbbc04 renders ≈ rgb(183,146,37) instead of brown.
+  const ACCENT_LUMA = 0.58;
+  // Chroma ramp of the accent treatment: below MIN a colour is neutral and
+  // inverts with the theme; from FULL up it is fully an accent; linear between.
+  const ACCENT_CHROMA_MIN = 0.08;
+  const ACCENT_CHROMA_FULL = 0.30;
+
+  // Source colour for a bright accent FILL (a rating bar, a status dot) so the
+  // page filter renders its own hue at ACCENT_LUMA instead of darkening it.
+  // Null when the plain filter already does fine: dark and mid tones (mirrored
+  // luma ≥ 0.5 → they come out lighter, hue kept) and near-neutral colours.
+  function accentFillSource(c) {
+    const L = filterLuma(c);
+    if (L <= 0.5 || chroma(c) < ACCENT_CHROMA_FULL) return null;
+    return hueKeeping(c, 1 - Math.min(L, ACCENT_LUMA), true);
+  }
+
+  // Source colour for colour-coded TEXT that renders too dark on its dark
+  // backdrop (a gold ★, an amber label): the least-changed colour of the same
+  // hue whose rendering reaches `minContrast` against `bgLum` (luminance of the
+  // rendered backdrop). `inverted` = the text sits under an odd number of
+  // invert filters, so the value is chosen for the page filter to render it
+  // right; otherwise it renders as-is. Null when unattainable.
+  // Through the page filter a bright colour starts at the accent luma, like an
+  // accent-filtered glyph: a gold ★ character and a gold ★ sprite then render
+  // the same gold.
+  function accentTextSource(c, bgLum, minContrast, inverted) {
+    const render = lum => {
+      const src = hueKeeping(c, inverted ? 1 - lum : lum, inverted);
+      return { src, shown: inverted ? pageFilter(src) : src };
+    };
+    const ok = lum => contrastRatio(luminance(render(lum).shown), bgLum) >= minContrast;
+    const L = filterLuma(c);
+    let lo = inverted ? Math.max(1 - L, Math.min(L, ACCENT_LUMA)) : L, hi = 1;
+    if (!ok(hi)) return null;
+    if (ok(lo)) return render(lo).src;
+    for (let i = 0; i < 14; i++) {
+      const mid = (lo + hi) / 2;
+      if (ok(mid)) hi = mid; else lo = mid;
+    }
+    return render(hi).src;
+  }
+
   DA.colors = {
     parseColor,
     luminance,
@@ -109,6 +217,17 @@
     hslToRgbString,
     isNeutralDark,
     nativeDarkMaxSat,
-    DARK_LUM_MAX
+    filterLuma,
+    pageFilter,
+    chroma,
+    contrastRatio,
+    toHex,
+    hueKeeping,
+    accentFillSource,
+    accentTextSource,
+    DARK_LUM_MAX,
+    ACCENT_LUMA,
+    ACCENT_CHROMA_MIN,
+    ACCENT_CHROMA_FULL
   };
 })(DA);

@@ -46,9 +46,20 @@ html[${ATTR}="on"] [${DA.NATIVE_DARK_ATTR}="1"] {
   filter: invert(1) hue-rotate(180deg) !important;
 }
 /* Avoid double-inverting svg icons that use currentColor (treat as text).
-   Excludes light-icon-rescued glyphs (handled by the rule just below). */
-html[${ATTR}="on"] svg:not([${DA.BG_IMAGE_ATTR}="1"]):not(:has(image)):not([${DA.LIGHT_ICON_ATTR}="1"]) {
+   Excludes light-icon-rescued and accent glyphs (handled by the rules below). */
+html[${ATTR}="on"] svg:not([${DA.BG_IMAGE_ATTR}="1"]):not(:has(image)):not([${DA.LIGHT_ICON_ATTR}="1"]):not([${DA.ACCENT_ATTR}="1"]) {
   filter: none !important;
+}
+/* Colour-coded UI glyphs (rating-star sprites, coloured status icons), tagged by
+   elements.js. The SVG accent filter (buildAccentFilter below) runs BEFORE the
+   page filter: neutral pixels pass through untouched, so the page invert flips
+   them like text (an empty light-gray star → a faint dark one), while bright
+   chromatic pixels are darkened just enough that the page filter mirrors them
+   back to a lit accent of their own hue (a gold star stays gold, not brown — nor
+   pale peach, which is all the counter-invert can restore). A sampled light-icon
+   rescue wins (Gmail's prefers-dark glyphs). */
+html[${ATTR}="on"] [${DA.ACCENT_ATTR}="1"]:not([${DA.LIGHT_ICON_ATTR}="1"]) {
+  filter: url("#${DA.ACCENT_FILTER_ID}") !important;
 }
 /* A large LIGHT canvas the user navigates (Google Maps' light map tiles),
    tagged by elements.js::classifyMapCanvas. The blanket canvas counter-invert
@@ -115,6 +126,10 @@ html[${ATTR}="on"] [${DA.NATIVE_DARK_ATTR}="1"] img[${DA.BG_ICON_ATTR}="1"] {
    light-on-light (the OVH Manager flyout hover bug). */
 html[${ATTR}="on"] [${DA.RESCUE_COLOR_ATTR}="1"]:not(:hover) { color: #141414 !important; }
 html[${ATTR}="on"] [${DA.RESCUE_COLOR_ATTR}="2"]:not(:hover) { color: #ededed !important; }
+/* Colour-coded text (a gold ★, an amber label) is rescued along its OWN hue —
+   value "c<hex>", one generated rule per colour in use (see textPaletteCss). A
+   neutral rescue would turn every star of a rating the same white. */
+${textPaletteCss()}
 /* Form fields rescued for low contrast. Two differences from the generic rule
    above: (1) cover the ::placeholder pseudo-element, which the bare color rule
    can't reach when the site sets an explicit placeholder colour (Gmail's search
@@ -157,6 +172,132 @@ html:not([${ATTR}="on"]) [${DA.NATIVE_LIGHT_ATTR}="1"] svg:not([${DA.BG_IMAGE_AT
 `;
   }
 
+  // ── Hue-keeping text rescue palette ──────────────────────────────────────
+  // Colours are picked per element by elements.js (DA.colors.accentTextSource)
+  // but applied through the injected stylesheet — never inline style, which
+  // would churn the style-watching observer (see the rescue notes in
+  // buildInversionCss).
+  const textPalette = new Set();
+  const TEXT_PALETTE_MAX = 256;
+  let paletteFlushQueued = false;
+
+  function textPaletteCss() {
+    let css = "";
+    for (const hex of textPalette) {
+      css += `html[${DA.ATTR}="on"] [${DA.RESCUE_COLOR_ATTR}="c${hex}"]:not(:hover) { color: #${hex} !important; }\n`;
+    }
+    return css;
+  }
+
+  // Make the rescue value "c<hex>" usable. Returns false when the palette is
+  // full (the caller falls back to the neutral rescue). New colours reach the
+  // stylesheet in one batched rewrite per task.
+  function requestTextColor(hex) {
+    if (textPalette.has(hex)) return true;
+    if (textPalette.size >= TEXT_PALETTE_MAX) return false;
+    textPalette.add(hex);
+    if (!paletteFlushQueued) {
+      paletteFlushQueued = true;
+      queueMicrotask(() => {
+        paletteFlushQueued = false;
+        // Only refresh a mounted sheet: a flush landing after disableForPage()
+        // must not resurrect the stylesheet.
+        const style = document.getElementById(DA.STYLE_ID);
+        if (style) style.textContent = buildInversionCss();
+      });
+    }
+    return true;
+  }
+
+  // ── SVG accent filter ────────────────────────────────────────────────────
+  // Per pixel, BEFORE the page filter F (out = in + 1 − 2·Lf; colors.js):
+  //   κ   = chroma ramp, 0 for neutrals … 1 for colourful pixels, from
+  //         |R−G| + |G−B| + |B−R| (= 2·chroma);
+  //   u   = max(0, min(2Lf − 1, Lf − (1 − ACCENT_LUMA))), Lf = F's own luma:
+  //         how far a BRIGHT pixel's luma must drop for F to mirror it to
+  //         ~ACCENT_LUMA rather than to 1 − Lf (0 whenever Lf ≤ 0.5, i.e. for
+  //         every colour F already renders light);
+  //   out = SetLum(in, Lb − κ·u) — feBlend "luminosity" (Lb = blend-mode luma)
+  //         shifts all channels by −κ·u, which lowers Lf by exactly κ·u too
+  //         (both weight sets sum to 1), and clips chroma into gamut keeping
+  //         the hue (plain arithmetic would clamp channels and drift it).
+  // κ·u = 0 → SetLum(in, Lb) = in: exact identity, so neutral pixels and
+  // dark/mid colours render just as with the plain page filter.
+  // Intermediates are kept opaque (unpremultiplied); the source alpha is
+  // re-applied at the end.
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  let filterDefsWanted = false;
+
+  function svgEl(tag, attrs, children) {
+    const el = document.createElementNS(SVG_NS, tag);
+    for (const k in attrs) el.setAttribute(k, attrs[k]);
+    if (children) for (const c of children) el.appendChild(c);
+    return el;
+  }
+
+  function accentTables() {
+    const { ACCENT_LUMA, ACCENT_CHROMA_MIN, ACCENT_CHROMA_FULL } = DA.colors;
+    const u = [];
+    for (let i = 0; i <= 50; i++) {
+      const L = i / 50;
+      u.push(+Math.max(0, Math.min(2 * L - 1, L - (1 - ACCENT_LUMA))).toFixed(4));
+    }
+    const span = ACCENT_CHROMA_FULL - ACCENT_CHROMA_MIN;
+    return { u: u.join(" "), kc: +(0.5 / span).toFixed(4), ko: +(-ACCENT_CHROMA_MIN / span).toFixed(4) };
+  }
+
+  function buildAccentFilter() {
+    const { u, kc, ko } = accentTables();
+    const rgbTable = (vals, attrs) => svgEl("feComponentTransfer", attrs, ["feFuncR", "feFuncG", "feFuncB"]
+      .map(f => svgEl(f, { type: "table", tableValues: vals })));
+    const lumRow = "0.3 0.59 0.11 0 0";      // blend-mode luma (SetLum's)
+    const fLumRow = "0.213 0.715 0.072 0 0"; // page-filter luma (hue-rotate's)
+    const kRow = `${kc} ${kc} ${kc} 0 ${ko}`;
+    return svgEl("filter", { id: DA.ACCENT_FILTER_ID, "color-interpolation-filters": "sRGB" }, [
+      svgEl("feColorMatrix", { in: "SourceGraphic", type: "matrix", result: "src",
+        values: "1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 0 1" }),
+      svgEl("feColorMatrix", { in: "src", type: "matrix", result: "lum",
+        values: `${lumRow}  ${lumRow}  ${lumRow}  0 0 0 0 1` }),
+      svgEl("feColorMatrix", { in: "src", type: "matrix", result: "flum",
+        values: `${fLumRow}  ${fLumRow}  ${fLumRow}  0 0 0 0 1` }),
+      rgbTable(u, { in: "flum", result: "u" }),
+      svgEl("feColorMatrix", { in: "src", type: "matrix", result: "diff",
+        values: "0.5 -0.5 0 0 0.5  0 0.5 -0.5 0 0.5  -0.5 0 0.5 0 0.5  0 0 0 0 1" }),
+      rgbTable("1 0 1", { in: "diff", result: "adiff" }),
+      svgEl("feColorMatrix", { in: "adiff", type: "matrix", result: "kappa",
+        values: `${kRow}  ${kRow}  ${kRow}  0 0 0 0 1` }),
+      svgEl("feComposite", { in: "kappa", in2: "u", operator: "arithmetic",
+        k1: "1", k2: "0", k3: "0", k4: "0", result: "ku" }),
+      // 1 − κu, then Lb + (1 − κu) − 1: every arithmetic step keeps alpha at 1.
+      rgbTable("1 0", { in: "ku", result: "w" }),
+      svgEl("feComposite", { in: "lum", in2: "w", operator: "arithmetic",
+        k1: "0", k2: "1", k3: "1", k4: "-1", result: "lg" }),
+      svgEl("feBlend", { in: "lg", in2: "src", mode: "luminosity", result: "lit" }),
+      svgEl("feComposite", { in: "lit", in2: "SourceGraphic", operator: "in" })
+    ]);
+  }
+
+  // Mount the accent filter once an element needs it (most pages never do).
+  // Built with DOM APIs, not innerHTML, so Trusted-Types pages accept it; not
+  // display:none (Firefox drops filters defined in undisplayed SVG).
+  function ensureFilterDefs() {
+    filterDefsWanted = true;
+    if (document.getElementById(DA.FILTER_DEFS_ID)) return;
+    const root = document.documentElement;
+    if (!root) return;
+    const svg = svgEl("svg", {
+      id: DA.FILTER_DEFS_ID, width: "0", height: "0", "aria-hidden": "true", focusable: "false",
+      style: "position:absolute;width:0;height:0;overflow:hidden;pointer-events:none"
+    }, [buildAccentFilter()]);
+    root.appendChild(svg);
+  }
+
+  function removeFilterDefs() {
+    filterDefsWanted = false;
+    const svg = document.getElementById(DA.FILTER_DEFS_ID);
+    if (svg) svg.remove();
+  }
+
   function ensureStyle() {
     let style = document.getElementById(DA.STYLE_ID);
     const css = buildInversionCss();
@@ -189,6 +330,9 @@ html:not([${ATTR}="on"]) [${DA.NATIVE_LIGHT_ATTR}="1"] svg:not([${DA.BG_IMAGE_AT
     }
     if (!document.getElementById(DA.STYLE_ID)) {
       ensureStyle();
+    }
+    if (filterDefsWanted && !document.getElementById(DA.FILTER_DEFS_ID)) {
+      ensureFilterDefs();
     }
   }
 
@@ -292,6 +436,9 @@ img[${DA.BG_ICON_ATTR}="1"] { filter: none !important; }
     buildInversionCss,
     ensureStyle,
     ensureAttributeAndStyle,
+    requestTextColor,
+    ensureFilterDefs,
+    removeFilterDefs,
     setImageInversionDisabled,
     setEnhanceContrast,
     applyShadowStyle,

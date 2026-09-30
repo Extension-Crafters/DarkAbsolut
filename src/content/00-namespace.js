@@ -41,3 +41,19 @@ DA.INVERT_MEDIA_ATTR = "data-darkabsolut-invertmedia";
 // element's original inline position/z-index for restore on disable.
 DA.ZLIFT_ATTR = "data-darkabsolut-zlift";
 DA.ZLIFT_ORIG_ATTR = "data-darkabsolut-zlift-orig";
+// A small UI glyph whose colours carry meaning (a rating star sprite, a
+// coloured status icon). Such a glyph is rendered through the SVG "accent"
+// filter (styles.js) instead of the plain page invert or the counter-invert:
+// its NEUTRAL pixels invert with the theme (an empty light-gray star becomes a
+// faint dark one) while its CHROMATIC pixels keep their hue and stay bright (a
+// gold star stays gold instead of turning brown, or pale peach once counter-
+// inverted). Without it the Google Maps rating stars rendered filled and empty
+// alike ("everything looks 5-star").
+DA.ACCENT_ATTR = "data-darkabsolut-accent";
+DA.FILTER_DEFS_ID = "darkabsolut-filters";
+DA.ACCENT_FILTER_ID = "darkabsolut-accent";
+// The ORIGINAL computed background-color of an element whose background we
+// rewrote (pre-lightened surface, accent fill, neutralised scrim). The inline
+// original kept in ORIG_ATTR is usually empty, so this is what lets the text
+// rescue compare against the colour the site actually designed for.
+DA.BG_SRC_ATTR = "data-darkabsolut-bg-src";
