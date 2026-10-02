@@ -30,6 +30,7 @@
     revertRescuedText,
     revertZLifts,
     clearShadowStyles,
+    clearTags,
     tagLightIslands,
     clearLightIslands
   } = DA.elements;
@@ -280,21 +281,40 @@
   }
 
   // ── Apply / unapply ──────────────────────────────────────────────────────
+  // Run a mode's initial full-document pass once the DOM is parsed. Only the
+  // LATEST mode's pass may run: phase 0 pre-applies at document_start, and when
+  // the worker answers "disabled" before DOMContentLoaded, a stale apply() pass
+  // firing afterwards would re-tag the page disableForPage() just cleaned —
+  // pre-lightened backgrounds and shadow-root counter-inverts on a page the
+  // master switch says to leave alone, on every reload.
+  let domReadyTask = null;
+  function cancelDomReadyTask() {
+    if (domReadyTask) {
+      document.removeEventListener("DOMContentLoaded", domReadyTask);
+      domReadyTask = null;
+    }
+  }
+  function whenDomReady(fn) {
+    cancelDomReadyTask();
+    if (document.readyState !== "loading") { fn(); return; }
+    domReadyTask = () => { domReadyTask = null; fn(); };
+    document.addEventListener("DOMContentLoaded", domReadyTask, { once: true });
+  }
+
   function apply() {
     if (state.applied) return;
     ensureStyle();
     document.documentElement.setAttribute(DA.ATTR, "on");
-    const run = () => {
+    // Set before the tagging pass so async classifiers it starts (cached icon
+    // samples resolve synchronously) see the page as themed.
+    state.applied = true;
+    whenDomReady(() => {
+      if (!state.applied) return;
       try { markBackgroundImageElements(document); } catch (_) {}
       // Leftover light-island tags from a previous dark-page mode would
       // double-invert under the now-active root filter. Clear them.
       try { clearLightIslands(document); } catch (_) {}
-    };
-    if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", run, { once: true });
-    } else {
-      run();
-    }
+    });
     // Some themes apply element backgrounds via a stylesheet that loads AFTER
     // our first pass (e.g. phpMyAdmin swaps each icon's real background-image in
     // late). That's a CSS change with no element mutation, so the observer never
@@ -303,7 +323,6 @@
       if (state.applied) { try { markBackgroundImageElements(document); } catch (_) {} }
     }, ms));
     startObserver();
-    state.applied = true;
     // Tell descendant frames to sit out — parent filter will invert them.
     broadcastInversionToSubframes(true);
     // A late-mounted iframe won't exist yet; re-broadcast after the DOM
@@ -333,19 +352,15 @@
     // fire on tagged descendants.
     ensureStyle();
     // Initial island scan and make sure the observer is running.
-    const run = () => {
+    whenDomReady(() => {
+      if (state.applied || !state.lastEnabledRequest) return;
       try { tagLightIslands(document.body || document); } catch (_) {}
       try {
         const frames = document.querySelectorAll("iframe");
         for (const f of frames) hookIframe(f);
       } catch (_) {}
       scheduleLightIslandRescan();
-    };
-    if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", run, { once: true });
-    } else {
-      run();
-    }
+    });
     startObserver();
     // Parent no longer inverting → let children take care of themselves. Re-send
     // after the DOM settles so a cross-origin iframe that mounts late (e.g. the
@@ -359,6 +374,9 @@
   // Hard disable for the page (global kill switch / domain opt-out).
   // Removes every trace of DarkAbsolut from the DOM.
   function disableForPage() {
+    // First, so a pass deferred to DOMContentLoaded can't re-tag after cleanup.
+    state.applied = false;
+    cancelDomReadyTask();
     document.documentElement.removeAttribute(DA.ATTR);
     document.documentElement.removeAttribute(DA.NOIMG_ATTR);
     setEnhanceContrast(false);
@@ -371,7 +389,7 @@
     try { revertZLifts(document); } catch (_) {}
     try { clearShadowStyles(document); } catch (_) {}
     try { clearLightIslands(document); } catch (_) {}
-    state.applied = false;
+    try { clearTags(document); } catch (_) {}
     broadcastInversionToSubframes(false);
   }
 

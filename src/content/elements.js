@@ -467,8 +467,26 @@
     }
   }
 
+  // `scope` plus every open shadow root nested in it. processShadowRoot runs
+  // the full element pipeline in there (pre-lighten included), but a plain
+  // querySelectorAll doesn't pierce the boundary — reverts must recurse.
+  function withShadowScopes(scope, out) {
+    out = out || [];
+    out.push(scope);
+    let i = 0;
+    for (const el of scope.querySelectorAll("*")) {
+      if (i++ > 5000) break;
+      if (el.shadowRoot) withShadowScopes(el.shadowRoot, out);
+    }
+    return out;
+  }
+
   function revertPreLightened(root) {
     const scope = root && root.querySelectorAll ? root : document;
+    for (const s of withShadowScopes(scope)) revertPreLightenedIn(s);
+  }
+
+  function revertPreLightenedIn(scope) {
     const els = scope.querySelectorAll(`[${ORIG_ATTR}]`);
     for (const el of els) {
       const orig = el.getAttribute(ORIG_ATTR);
@@ -1023,8 +1041,13 @@
     return keep < ICON_MIN_CONTRAST && inv > keep;
   }
 
+  // Image sampling settles asynchronously — possibly after the page was
+  // switched off (disableForPage). Never tag a page that is no longer themed.
+  // (DA.state is absent when the module runs without the controller.)
+  function themeActive() { return !DA.state || DA.state.applied; }
+
   function tagIcon(el, on) {
-    if (!el.isConnected || el.hasAttribute(BG_IMAGE_ATTR)) return;
+    if (!el.isConnected || el.hasAttribute(BG_IMAGE_ATTR) || !themeActive()) return;
     if (on) el.setAttribute(BG_ICON_ATTR, "1");
     else if (el.hasAttribute(BG_ICON_ATTR)) el.removeAttribute(BG_ICON_ATTR);
   }
@@ -1330,7 +1353,7 @@
     const url = firstUrl(bg);
     if (!url) { if (el.hasAttribute(LIGHT_ICON_ATTR)) el.removeAttribute(LIGHT_ICON_ATTR); return; }
     const tag = on => {
-      if (!el.isConnected) return;
+      if (!el.isConnected || !themeActive()) return;
       if (on) { if (!el.hasAttribute(LIGHT_ICON_ATTR)) el.setAttribute(LIGHT_ICON_ATTR, "1"); }
       else if (el.hasAttribute(LIGHT_ICON_ATTR)) el.removeAttribute(LIGHT_ICON_ATTR);
     };
@@ -1872,6 +1895,24 @@
     for (const el of els) el.removeAttribute(NATIVE_LIGHT_ATTR);
   }
 
+  // The pure classification tags — inert without our stylesheet, but a hard
+  // disable must leave the DOM exactly as the site built it. (Tags that also
+  // rewrote inline style are restored by revertPreLightened / revertZLifts.)
+  const CLASS_TAGS = [
+    BG_IMAGE_ATTR, BG_ICON_ATTR, NATIVE_DARK_ATTR, LIGHT_ICON_ATTR,
+    INVERT_MEDIA_ATTR, ACCENT_ATTR
+  ];
+  const CLASS_TAGS_SEL = CLASS_TAGS.map(a => `[${a}]`).join(",");
+
+  function clearTags(root) {
+    const scope = root && root.querySelectorAll ? root : document;
+    for (const s of withShadowScopes(scope)) {
+      for (const el of s.querySelectorAll(CLASS_TAGS_SEL)) {
+        for (const a of CLASS_TAGS) el.removeAttribute(a);
+      }
+    }
+  }
+
   DA.elements = {
     hasNativeDarkAncestor,
     hasVisibleLightDescendant,
@@ -1887,6 +1928,7 @@
     markBackgroundImageElements,
     processShadowRoot,
     clearShadowStyles,
+    clearTags,
     tagLightIslands,
     clearLightIslands
   };
