@@ -24,6 +24,8 @@
   const { isNeutralDark } = DA.colors;
   const {
     markBackgroundImageElements,
+    collectBgAncestors,
+    recheckBgContainer,
     processElement,
     reclassifyLargeCanvases,
     revertPreLightened,
@@ -199,13 +201,15 @@
     if (!applied && !lastReq) { pendingNodes.clear(); pendingAttrs.clear(); return; }
     const start = nowMs();
     let islandsDirty = false;
+    // Counter-inverted [bg] containers that gained content in this slice.
+    const bgHosts = new Set();
 
     // Added-node subtrees first (deleting as we go is safe during Set iteration).
     for (const n of pendingNodes) {
       pendingNodes.delete(n);
       if (n.nodeType === 1 && n.isConnected !== false) {
         if (applied) {
-          try { markBackgroundImageElements(n); } catch (_) {}
+          try { markBackgroundImageElements(n); collectBgAncestors(n, bgHosts); } catch (_) {}
         } else {
           // Root inversion off (page detected dark): tag injected light subtrees
           // (compose dialogs, message iframes, modals) so the local-invert rule
@@ -218,6 +222,8 @@
       }
       if (nowMs() - start > MUT_SLICE_MS) break;
     }
+    // New content can turn an image panel into a content surface (once each).
+    for (const h of bgHosts) { try { recheckBgContainer(h); } catch (_) {} }
 
     // Then class/style targets (a change can flip an element's resolved bg).
     if (nowMs() - start <= MUT_SLICE_MS) {

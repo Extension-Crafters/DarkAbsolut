@@ -32,7 +32,16 @@ DA.LIGHT_ICON_ATTR = "data-darkabsolut-lighticon";
 // that samples dark (a native dark map / dark game) is left counter-inverted so
 // it keeps its real colours. Decided per-sample so it self-corrects when the map
 // switches between light and satellite/dark styles.
+// Also set on a large, featureless LIGHT <img> used as a section backdrop behind
+// dark text (microsoft.com's hero) — same reasoning, same rule.
 DA.INVERT_MEDIA_ATTR = "data-darkabsolut-invertmedia";
+// An element whose ::before / ::after paints a large DARK surface (a scrim
+// over a hero photo, a brand gradient, a coloured nav bar). A pseudo-element
+// can't carry a tag of its own, so its HOST lists which ones keep their
+// colours (space-separated: "before", "after", plus "solid" when one is
+// opaque enough to be the backdrop of the text); the page filter would
+// otherwise turn that dark paint into a light wash.
+DA.PSEUDO_BG_ATTR = "data-darkabsolut-pbg";
 // A counter-filtered wrapper ([darknative]/[bg]) whose filter-induced stacking
 // context traps a positioned overlay's z-index (the Skyscanner calendar
 // popover inside the dark search hero). The wrapper's own z-index is lifted

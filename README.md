@@ -174,6 +174,10 @@ All test assets live under `tests/`:
 tests/test-extension.js             End-to-end: loads the unpacked extension, checks invert on/off
 tests/test-color-model.js           Page-filter colour model vs the browser, accent filter + helpers
 tests/test-color-coding.js          Colour-coded info (rating stars, accents, faint text) survives
+tests/test-light-surface-bg.js      A light page wrapper with a fitted banner image still goes dark
+tests/test-pseudo-surface.js        A dark surface painted by ::before / ::after keeps its colours
+tests/test-backdrop-img.js          A featureless light <img> backdrop behind dark text goes dark
+tests/test-gradient-weight.js       Gradient light/dark verdict weighs stops by position
 tests/test-dark.js                  Playwright runner (navigates a real page)
 tests/test-core.js                  Standalone inversion core, injected by the runner
 tests/visual-audit.js               Loads the real extension, screenshots fixtures (+ live

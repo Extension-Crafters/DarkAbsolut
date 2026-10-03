@@ -66,8 +66,32 @@ html[${ATTR}="on"] [${DA.ACCENT_ATTR}="1"]:not([${DA.LIGHT_ICON_ATTR}="1"]) {
    above keeps such a canvas at its true (bright) colours on the dark page;
    dropping the counter-invert (filter:none) lets the page-level invert darken it
    WITH the theme. A canvas that samples DARK is left untagged, so it keeps the
-   counter-invert (true colours). Higher specificity than the blanket rule. */
-html[${ATTR}="on"] canvas[${DA.INVERT_MEDIA_ATTR}="1"] {
+   counter-invert (true colours). Higher specificity than the blanket rule.
+   Same for a large, featureless light <img> that is a section's backdrop behind
+   dark text (elements.js::classifyBackdropImg). */
+html[${ATTR}="on"] canvas[${DA.INVERT_MEDIA_ATTR}="1"],
+html[${ATTR}="on"] img[${DA.INVERT_MEDIA_ATTR}="1"] {
+  filter: none !important;
+}
+/* A large DARK surface painted by a pseudo-element (a scrim over a hero photo,
+   a brand gradient, a coloured nav bar), tagged on its host by
+   elements.js::classifyPseudoBg. Counter-inverted so it keeps its dark paint
+   instead of being flipped to a light wash; a pseudo-element has no subtree, so
+   nothing else is affected. */
+html[${ATTR}="on"] [${DA.PSEUDO_BG_ATTR}~="before"]::before,
+html[${ATTR}="on"] [${DA.PSEUDO_BG_ATTR}~="after"]::after {
+  filter: invert(1) hue-rotate(180deg) !important;
+}
+/* …but not when the host or an ancestor is itself counter-inverted: that
+   filter already restores the pseudo-element with the rest of the subtree. */
+html[${ATTR}="on"] [${DA.BG_IMAGE_ATTR}="1"][${DA.PSEUDO_BG_ATTR}]::before,
+html[${ATTR}="on"] [${DA.BG_IMAGE_ATTR}="1"][${DA.PSEUDO_BG_ATTR}]::after,
+html[${ATTR}="on"] [${DA.BG_IMAGE_ATTR}="1"] [${DA.PSEUDO_BG_ATTR}]::before,
+html[${ATTR}="on"] [${DA.BG_IMAGE_ATTR}="1"] [${DA.PSEUDO_BG_ATTR}]::after,
+html[${ATTR}="on"] [${DA.NATIVE_DARK_ATTR}="1"][${DA.PSEUDO_BG_ATTR}]::before,
+html[${ATTR}="on"] [${DA.NATIVE_DARK_ATTR}="1"][${DA.PSEUDO_BG_ATTR}]::after,
+html[${ATTR}="on"] [${DA.NATIVE_DARK_ATTR}="1"] [${DA.PSEUDO_BG_ATTR}]::before,
+html[${ATTR}="on"] [${DA.NATIVE_DARK_ATTR}="1"] [${DA.PSEUDO_BG_ATTR}]::after {
   filter: none !important;
 }
 /* Light-icon rescue: a glyph that is ALREADY light (a prefers-dark icon on a
@@ -370,7 +394,7 @@ img, video, embed, object, canvas, svg image,
   filter: invert(1) hue-rotate(180deg) !important;
 }
 svg:not([${DA.BG_IMAGE_ATTR}="1"]):not(:has(image)):not([${DA.LIGHT_ICON_ATTR}="1"]) { filter: none !important; }
-canvas[${DA.INVERT_MEDIA_ATTR}="1"] { filter: none !important; }
+canvas[${DA.INVERT_MEDIA_ATTR}="1"], img[${DA.INVERT_MEDIA_ATTR}="1"] { filter: none !important; }
 [${DA.LIGHT_ICON_ATTR}="1"] { filter: invert(1) hue-rotate(180deg) !important; }
 img[${DA.BG_ICON_ATTR}="1"] { filter: none !important; }
 [${DA.NATIVE_DARK_ATTR}="1"] img,

@@ -18,7 +18,8 @@
   const {
     ORIG_ATTR, ORIG_COLOR_ATTR, BG_IMAGE_ATTR, BG_ICON_ATTR,
     NATIVE_DARK_ATTR, NATIVE_LIGHT_ATTR, RESCUE_COLOR_ATTR, LIGHT_ICON_ATTR,
-    INVERT_MEDIA_ATTR, ZLIFT_ATTR, ZLIFT_ORIG_ATTR, ACCENT_ATTR, BG_SRC_ATTR
+    INVERT_MEDIA_ATTR, ZLIFT_ATTR, ZLIFT_ORIG_ATTR, ACCENT_ATTR, BG_SRC_ATTR,
+    PSEUDO_BG_ATTR
   } = DA;
 
   // Minimum fraction of the viewport area a subtree must cover before we
@@ -503,27 +504,131 @@
     }
   }
 
-  // Stats over the color stops of a CSS gradient string. Computed styles
-  // always express stops as rgb()/rgba(), so a plain scan is enough. Returns:
+  // Every gradient function in a computed background-image string, as its
+  // top-level comma-separated arguments (commas inside rgb(…) don't split).
+  function gradientLayers(bg) {
+    const layers = [];
+    const re = /(repeating-)?(?:linear|radial|conic)-gradient\(/gi;
+    let m;
+    while ((m = re.exec(bg))) {
+      const args = [];
+      let depth = 1, i = re.lastIndex, start = i;
+      for (; i < bg.length; i++) {
+        const ch = bg[i];
+        if (ch === "(") depth++;
+        else if (ch === ")") { if (--depth === 0) break; }
+        else if (ch === "," && depth === 1) { args.push(bg.slice(start, i)); start = i + 1; }
+      }
+      args.push(bg.slice(start, i));
+      layers.push({ repeating: !!m[1], args });
+      re.lastIndex = i;
+    }
+    return layers;
+  }
+
+  // Colour stops of one gradient layer as { a, la, p }: alpha, luminance·alpha
+  // and position along the gradient line as a 0..1 fraction. Positions follow
+  // the CSS defaulting rules — first 0, last 1, never decreasing, gaps spread
+  // evenly. A length that can't be resolved without the line's size (px, calc)
+  // counts as unpositioned. Computed styles always express stop colours as
+  // rgb()/rgba(); an argument without one is the direction/shape or a hint.
+  function gradientStops(args, lumOf) {
+    const stops = [];
+    for (const arg of args) {
+      const cm = /rgba?\([^)]*\)/i.exec(arg);
+      const c = cm && parseColor(cm[0]);
+      if (!c) continue;
+      const a = c.a == null ? 1 : c.a;
+      const rest = arg.slice(cm.index + cm[0].length).trim();
+      const positions = [];
+      if (rest && !/\(/.test(rest)) {
+        for (const tok of rest.split(/\s+/)) {
+          const pm = /^(-?[\d.]+)(%|deg|turn)?$/.exec(tok);
+          const v = pm ? parseFloat(pm[1]) : NaN;
+          positions.push(pm && pm[2] === "%" ? v / 100 : pm && pm[2] === "deg" ? v / 360 :
+            pm && pm[2] === "turn" ? v : parseFloat(tok) === 0 ? 0 : null);
+        }
+      }
+      if (!positions.length) positions.push(null);
+      for (const p of positions) stops.push({ a, la: lumOf(c) * a, p });
+    }
+    const n = stops.length;
+    if (!n) return stops;
+    if (stops[0].p == null) stops[0].p = 0;
+    if (stops[n - 1].p == null) stops[n - 1].p = 1;
+    let prev = -Infinity;
+    for (const s of stops) {
+      if (s.p == null) continue;
+      if (s.p < prev) s.p = prev;
+      prev = s.p;
+    }
+    for (let i = 1; i < n - 1; i++) {
+      if (stops[i].p != null) continue;
+      let j = i;
+      while (stops[j].p == null) j++;
+      const from = stops[i - 1].p, step = (stops[j].p - from) / (j - i + 1);
+      for (let k = i; k < j; k++) stops[k].p = from + step * (k - i + 1);
+      i = j;
+    }
+    return stops;
+  }
+
+  // Mean of (luminance·alpha) and of alpha along one layer's gradient line —
+  // over 0..1 (the first/last colour extends to the ends), or over one period
+  // of a repeating gradient. Linear between stops.
+  function integrateStops(stops, repeating) {
+    const first = stops[0], last = stops[stops.length - 1];
+    let lo = 0, hi = 1;
+    if (repeating && last.p > first.p) { lo = first.p; hi = last.p; }
+    let sumL = 0, sumA = 0;
+    const add = (x0, x1, la0, a0, la1, a1) => {
+      if (x1 <= x0) return;
+      sumL += (x1 - x0) * (la0 + la1) / 2;
+      sumA += (x1 - x0) * (a0 + a1) / 2;
+    };
+    add(lo, Math.min(first.p, hi), first.la, first.a, first.la, first.a);
+    for (let i = 0; i < stops.length - 1; i++) {
+      const s = stops[i], e = stops[i + 1], span = e.p - s.p;
+      const x0 = Math.max(s.p, lo), x1 = Math.min(e.p, hi);
+      if (x1 <= x0) continue;
+      const t0 = (x0 - s.p) / span, t1 = (x1 - s.p) / span;
+      add(x0, x1, s.la + (e.la - s.la) * t0, s.a + (e.a - s.a) * t0,
+        s.la + (e.la - s.la) * t1, s.a + (e.a - s.a) * t1);
+    }
+    add(Math.max(last.p, lo), hi, last.la, last.a, last.la, last.a);
+    return { sumL: sumL / (hi - lo), sumA: sumA / (hi - lo) };
+  }
+
+  // Stats over the colour stops of a CSS gradient string. Returns:
   //   • meanLum: opacity-weighted mean luminance, or null when the gradient is
   //     mostly transparent (a faint tint/scrim rather than a solid surface) —
   //     in which case its own luminance isn't a reliable "is it light" signal.
+  //     Each stop weighs by the LENGTH of gradient line it colours, not once
+  //     per stop: canva.com's hero runs deep purple over its first 57 % and
+  //     packs three near-white stops into the last quarter — a plain stop
+  //     average called it light (0.52) and it was inverted to a pale wash,
+  //     while by area it is dark (0.38). A 1-D measure: exact for linear
+  //     gradients, an approximation for radial/conic ones.
   //   • maxAlpha: the peak stop opacity. Low values mean the gradient is a
   //     near-transparent overlay that lets the element's background-color show
   //     through (so the bg-color is the real surface).
-  function gradientStats(bg) {
-    const matches = bg.match(/rgba?\([^)]*\)/gi);
-    if (!matches) return { meanLum: null, maxAlpha: 0 };
-    let sumL = 0, sumA = 0, maxAlpha = 0;
-    for (const m of matches) {
-      const c = parseColor(m);
-      if (!c) continue;
-      const a = c.a == null ? 1 : c.a;
-      sumL += luminance(c) * a;
-      sumA += a;
-      if (a > maxAlpha) maxAlpha = a;
+  //   • meanAlpha: the opacity averaged along the line, like meanLum.
+  // `lumOf` picks the luminance measure (WCAG by default).
+  function gradientStats(bg, lumOf) {
+    let mass = 0, maxAlpha = 0, sumL = 0, sumA = 0;
+    for (const layer of gradientLayers(bg)) {
+      const stops = gradientStops(layer.args, lumOf || luminance);
+      if (!stops.length) continue;
+      for (const s of stops) {
+        mass += s.a;
+        if (s.a > maxAlpha) maxAlpha = s.a;
+      }
+      const r = integrateStops(stops, layer.repeating);
+      sumL += r.sumL;
+      sumA += r.sumA;
     }
-    return { meanLum: sumA < 0.5 ? null : sumL / sumA, maxAlpha };
+    return { meanLum: mass < 0.5 || sumA <= 0 ? null : sumL / sumA, maxAlpha,
+             meanAlpha: Math.min(1, sumA) };
   }
 
   // Media tags whose pixels are counter-inverted by the page CSS so they show
@@ -624,6 +729,90 @@
     return false;
   }
 
+  // An element's own text colour as the SITE set it — reading through our
+  // low-contrast rescue, whose CSS rule otherwise answers for it.
+  function sourceTextColor(el, cs) {
+    const rescued = el.getAttribute(RESCUE_COLOR_ATTR);
+    if (rescued == null) return parseColor(cs.color);
+    // (Toggling a data-attribute doesn't trigger the style-watching observer.)
+    el.removeAttribute(RESCUE_COLOR_ATTR);
+    let c = null;
+    try { c = parseColor(getComputedStyle(el).color); } catch (_) {}
+    el.setAttribute(RESCUE_COLOR_ATTR, rescued);
+    return c;
+  }
+
+  // Tone of the text that sits directly on `el`'s OWN surface — not inside a
+  // descendant that paints an opaque background or an image of its own (that
+  // text is designed against the descendant, not against `el`). Light text
+  // means the surface behind it is dark (text over a dark picture); dark text
+  // means it is light. Bounded walk; stops at the first light text found.
+  //
+  // With `backdrop` ({ el, rect }: an image filling `el`, see
+  // classifyBackdropImg) the surface is that image: the wrappers leading down
+  // to it are walked through whatever they paint (their background lies BEHIND
+  // the image), and only text overlapping the image counts.
+  const SURFACE_TEXT_MAX_NODES = 300;
+  function surfaceTextTone(el, cs, backdrop) {
+    const tone = { dark: false, light: false };
+    let budget = SURFACE_TEXT_MAX_NODES;
+    const overBackdrop = node => {
+      let nr;
+      try { nr = node.getBoundingClientRect(); } catch (_) { return false; }
+      const r = backdrop.rect;
+      return nr.width > 0 && nr.height > 0 && nr.left < r.right && nr.right > r.left &&
+             nr.top < r.bottom && nr.bottom > r.top;
+    };
+    const note = (node, ncs) => {
+      if (!hasDirectText(node)) return;
+      if (backdrop && !overBackdrop(node)) return;
+      const tc = sourceTextColor(node, ncs);
+      if (!tc || tc.a < 0.3) return;
+      if (luminance(tc) > 0.5) tone.light = true; else tone.dark = true;
+    };
+    const walk = node => {
+      for (const child of node.children) {
+        if (tone.light || budget-- <= 0) return;
+        let ccs;
+        try { ccs = getComputedStyle(child); } catch (_) { continue; }
+        if (ccs.display === "none" || ccs.visibility === "hidden") continue;
+        if (!(backdrop && child.contains(backdrop.el))) {
+          const c = parseColor(ccs.backgroundColor);
+          if ((c && c.a >= 0.5) || (ccs.backgroundImage && ccs.backgroundImage !== "none")) continue;
+        }
+        note(child, ccs);
+        walk(child);
+      }
+    };
+    note(el, cs);
+    walk(el);
+    return tone;
+  }
+
+  // A band/page-sized LIGHT content container that merely carries a decorative
+  // image: an opaque light background-color under it, text in it, and content
+  // designed for a light surface (dark text on the surface itself, or light
+  // panels inside). Its identity is that content, not the image — counter-
+  // inverting it re-lights the whole region and turns every <img> inside into
+  // a colour-negative. (italki's quiz report: the page wrapper, `min-h-screen`
+  // with a light bg-color and a hero banner fitted `100%` wide at the top, got
+  // tagged, so the entire page stayed light.)
+  //   • picture-sized elements (long side within MAX_BG_PHOTO_SIDE) are left
+  //     alone — a logo button or an illustrated tile keeps its image;
+  //   • light text on the surface means the image is a dark backdrop that text
+  //     was designed against (a hero) — that stays counter-inverted.
+  function isLightContentSurface(el, cs) {
+    const bc = parseColor(cs.backgroundColor);
+    if (!bc || bc.a < 0.8 || luminance(bc) < LIGHT_GRADIENT_MIN_LUM) return false;
+    let r;
+    try { r = el.getBoundingClientRect(); } catch (_) { return false; }
+    if (Math.max(r.width, r.height) <= MAX_BG_PHOTO_SIDE) return false;
+    if (!hasTextContent(el)) return false;
+    const tone = surfaceTextTone(el, cs);
+    if (tone.light) return false;
+    return tone.dark || hasVisibleLightDescendant(el, 3);
+  }
+
   // Decide whether an element with a background-image should receive the
   // counter-invert filter. The filter re-inverts the whole element
   // (including its rendered text), which is correct for panels whose visual
@@ -645,7 +834,9 @@
   //       – a gradient combined with a url() image is image content → tag.
   //   • url() that tiles or fills the element (cover/contain/100% or a
   //     repeating pattern) → tag. The image defines the element's visual
-  //     identity; re-invert keeps the intended colors.
+  //     identity; re-invert keeps the intended colors. Exception: an image
+  //     merely fitted (not `cover`) into a large light content container —
+  //     see isLightContentSurface.
   //   • url() with no-repeat and default (auto) size → treat as a
   //     decorative icon and DON'T tag, regardless of whether the element's
   //     background-color is opaque. Tagging such elements counter-inverts
@@ -662,6 +853,13 @@
     if (hasGradient) {
       if (!hasUrl) {
         const { meanLum, maxAlpha } = gradientStats(bg);
+        // A gradient clipped to the text is ink, not a surface: the "light
+        // surface → let the page darken it" reasoning below would turn a light
+        // gradient heading dark on the dark page (stripe.com's yellow→pink
+        // list numerals). It keeps its colours.
+        if (/text/.test(cs.webkitBackgroundClip || "") || /text/.test(cs.backgroundClip || "")) {
+          return true;
+        }
         const bc = parseColor(cs.backgroundColor);
         const opaqueLightBg =
           bc && bc.a >= 0.8 && luminance(bc) >= LIGHT_GRADIENT_MIN_LUM;
@@ -701,7 +899,14 @@
     // A cover/contain image is the element's visual identity → counter-invert,
     // unless a large <img>/<video> fronts it (then this is a wrapper around real
     // media that would be triple-inverted; leave it to the media's own rule).
-    if (coversViewport) return !hasLargeMediaDescendant(el);
+    if (coversViewport) {
+      // Only `cover` guarantees the image fills the box. A `contain` / `100%`
+      // image is merely FITTED into it — over a light content container the
+      // light background-color stays the surface, so let the page filter
+      // darken it (see isLightContentSurface).
+      if (!/cover/.test(size) && isLightContentSurface(el, cs)) return false;
+      return !hasLargeMediaDescendant(el);
+    }
 
     if (isRepeating) {
       // A tiled/repeating background is almost always a decorative texture or
@@ -727,6 +932,92 @@
     // Small decorative icon — leave it untouched so the root invert can
     // flip the text color normally.
     return false;
+  }
+
+  // ── Pseudo-element surfaces ──────────────────────────────────────────────
+  // A background painted by ::before / ::after — a dark scrim over a hero
+  // photo, a brand gradient, a coloured nav bar — is invisible to the tagging
+  // above (it reads the element's OWN background) and can't be rewritten
+  // inline. The page filter then turns that dark paint into a LIGHT wash, under
+  // text the site drew light and the rescue forces light again: light on light
+  // (cdc.gov's hero scrim and nav bar, busuu.com's header gradient). Such a
+  // pseudo-element is counter-inverted through a tag on its host; it has no
+  // subtree, so only its own paint is restored.
+  //
+  // Kept only when it is a SURFACE (large in both directions — a thin one is a
+  // rule/underline, foreground ink that must invert with the text) and its
+  // paint is DARK: the page filter would render it lighter than it is. Whatever
+  // text sits on it ends up light (inverted, or rescued), so the darker of the
+  // two renderings is always the readable one. This also covers a translucent
+  // dark veil over the page (a modal / consent backdrop), which inverted would
+  // WHITEN the dark page instead of dimming it.
+
+  // Shorter side below which a pseudo-element is a line, not a surface.
+  const PSEUDO_MIN_SIDE = 32; // px
+  // Opacity from which a kept pseudo-surface is what the text sits on, rather
+  // than a veil the page shows through. Marked "solid" in the host's tag.
+  const PSEUDO_SOLID_ALPHA = 0.5;
+  // Rendered luminance assumed for a solid kept pseudo-surface (it is dark).
+  const PSEUDO_SURFACE_LUM = 0.05;
+
+  // The alpha of a pseudo-element's paint when that paint should keep its
+  // colours, else 0. `kept`: it is already tagged, so the filter on it is ours.
+  function pseudoKeptAlpha(p, kept) {
+    if (p.content === "none" || p.display === "none" || p.visibility === "hidden") return 0;
+    // Our filter would replace the site's own (a blur glow, a drop-shadow).
+    if (!kept && p.filter && p.filter !== "none") return 0;
+    const opacity = parseFloat(p.opacity);
+    if (opacity < 0.2) return 0;
+    const w = parseFloat(p.width), h = parseFloat(p.height);
+    if (!(w * h >= SCRIM_MIN_AREA) || Math.min(w, h) < PSEUDO_MIN_SIDE) return 0;
+    const bg = p.backgroundImage;
+    if (bg && bg !== "none") {
+      // A url() alone: the image's tone is unknowable.
+      if (!/gradient\(/i.test(bg)) return 0;
+      const { meanLum, meanAlpha } = gradientStats(bg, filterLuma);
+      if (meanLum != null) return meanLum < 0.5 ? meanAlpha * opacity : 0;
+      // A faint tint: over an image nothing can be claimed; else the colour decides.
+      if (/url\(/i.test(bg)) return 0;
+    }
+    const c = parseColor(p.backgroundColor);
+    return c && c.a >= 0.3 && filterLuma(c) < 0.5 ? c.a * opacity : 0;
+  }
+
+  // Tag value: which pseudo-elements keep their colours ("before", "after"),
+  // plus "solid" when one of them is opaque enough to be the text's backdrop.
+  function classifyPseudoBg(el, cs) {
+    let want = "";
+    // A large pseudo-surface needs a containing block: a positioned host, or
+    // <body> for a viewport-fixed veil. (Cheap gate — pseudo styles are only
+    // resolved for those.) Skipped where the pseudo-element doesn't render
+    // through the page filter alone: a counter-inverted host or ancestor
+    // already restores it, and across a shadow boundary the parity is unknown.
+    if ((cs.position !== "static" || el === document.body) &&
+        el.getRootNode() === document &&
+        !el.hasAttribute(BG_IMAGE_ATTR) && !el.hasAttribute(NATIVE_DARK_ATTR) &&
+        !hasCounterInvertedAncestor(el)) {
+      const kept = (el.getAttribute(PSEUDO_BG_ATTR) || "").split(" ");
+      let solid = false;
+      for (const pe of ["before", "after"]) {
+        let p;
+        try { p = getComputedStyle(el, "::" + pe); } catch (_) { continue; }
+        const alpha = pseudoKeptAlpha(p, kept.includes(pe));
+        if (!alpha) continue;
+        want += (want ? " " : "") + pe;
+        if (alpha >= PSEUDO_SOLID_ALPHA) solid = true;
+      }
+      if (solid) want += " solid";
+    }
+    if (want) {
+      if (el.getAttribute(PSEUDO_BG_ATTR) !== want) el.setAttribute(PSEUDO_BG_ATTR, want);
+    } else if (el.hasAttribute(PSEUDO_BG_ATTR)) {
+      el.removeAttribute(PSEUDO_BG_ATTR);
+    }
+  }
+
+  function hasSolidPseudoSurface(el) {
+    const v = el.getAttribute(PSEUDO_BG_ATTR);
+    return !!v && v.indexOf("solid") >= 0;
   }
 
   // ── Low-contrast text rescue ─────────────────────────────────────────────
@@ -832,14 +1123,21 @@
   // (decorative/transparent overlays like menu-item icons let the surface
   // behind show through). Reaching the root with no opaque colour means the
   // page surface shows through, which is dark while inverted.
+  // A solid kept pseudo-surface (classifyPseudoBg) met on the way paints its
+  // dark source colours OVER whatever lies at or above its host: the answer is
+  // then at most that dark.
   function effectiveDisplayedBg(el) {
-    let cur = el, hops = 0;
+    let cur = el, hops = 0, pseudo = false;
     while (cur && cur.nodeType === 1 && hops++ < 200) {
+      if (hasSolidPseudoSurface(cur)) pseudo = true;
       let cs;
       try { cs = getComputedStyle(cur); } catch (_) { return null; }
       const c = parseColor(cs.backgroundColor);
-      if (c && c.a >= 0.5) return displayedLum(c, chainInvertParity(cur));
-      if (cur !== el && cur.hasAttribute(BG_IMAGE_ATTR)) return null;
+      if (c && c.a >= 0.5) {
+        const lum = displayedLum(c, chainInvertParity(cur));
+        return pseudo ? Math.min(lum, PSEUDO_SURFACE_LUM) : lum;
+      }
+      if (cur !== el && cur.hasAttribute(BG_IMAGE_ATTR)) return pseudo ? PSEUDO_SURFACE_LUM : null;
       if (cur === document.documentElement) break;
       cur = cur.parentElement;
     }
@@ -969,18 +1267,50 @@
     return m ? m[2] : null;
   }
 
+  // Relief of an RGBA pixel grid: the darkest opaque pixel's filter-luma, and
+  // the largest luma step between two neighbouring opaque pixels. A featureless
+  // wash has a small step everywhere; a picture has edges.
+  function relief(d, w, h) {
+    const L = new Float32Array(w * h);
+    let minLuma = 1;
+    for (let i = 0, p = 0; p < L.length; i += 4, p++) {
+      if (d[i + 3] <= 20) { L[p] = -1; continue; }
+      const l = filterLuma({ r: d[i], g: d[i + 1], b: d[i + 2] });
+      L[p] = l;
+      if (l < minLuma) minLuma = l;
+    }
+    let maxEdge = 0;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const a = L[y * w + x];
+        if (a < 0) continue;
+        const right = x + 1 < w ? L[y * w + x + 1] : -1;
+        const below = y + 1 < h ? L[(y + 1) * w + x] : -1;
+        if (right >= 0 && Math.abs(a - right) > maxEdge) maxEdge = Math.abs(a - right);
+        if (below >= 0 && Math.abs(a - below) > maxEdge) maxEdge = Math.abs(a - below);
+      }
+    }
+    return { minLuma, maxEdge };
+  }
+
   // Sample an image's opaque pixels → { lum, mono }: mean luminance (0..1) and
   // whether it's (near-)monochrome/grayscale (a logo/glyph, not a colour photo).
   // null when it can't be read (cross-origin taint / load error). Drawn to a
   // canvas; same-origin assets (the common case) read fine.
-  function sampleImage(url) {
+  // With `maxDim` the image is drawn scaled down to that size and its relief
+  // ({ minLuma, maxEdge }) is measured too.
+  function sampleImage(url, maxDim) {
     return new Promise(resolve => {
       let done = false;
       const finish = v => { if (!done) { done = true; resolve(v); } };
       const img = new Image();
       img.onload = () => {
         try {
-          const w = img.naturalWidth || 24, h = img.naturalHeight || 24;
+          let w = img.naturalWidth || 24, h = img.naturalHeight || 24;
+          if (maxDim && Math.max(w, h) > maxDim) {
+            const k = maxDim / Math.max(w, h);
+            w = Math.max(1, Math.round(w * k)); h = Math.max(1, Math.round(h * k));
+          }
           const c = document.createElement("canvas");
           c.width = w; c.height = h;
           const ctx = c.getContext("2d");
@@ -997,9 +1327,11 @@
             if (mx === 0 || (mx - mn) / mx < 0.18) gray++;
             n++;
           }
+          if (!n) { finish(null); return; }
           // WCAG luminance of the average opaque colour — same scale as the
           // container luminance we compare against in shouldInvertIcon.
-          finish(n ? { lum: luminance({ r: sr / n, g: sg / n, b: sb / n }), mono: gray / n > 0.85 } : null);
+          const stats = { lum: luminance({ r: sr / n, g: sg / n, b: sb / n }), mono: gray / n > 0.85 };
+          finish(maxDim ? Object.assign(stats, relief(d, w, h)) : stats);
         } catch (_) { finish(null); } // tainted (cross-origin) → unknown
       };
       img.onerror = () => finish(null);
@@ -1075,6 +1407,87 @@
     const decide = s => tagIcon(el, !!(s && s.mono && shouldInvertIcon(s.lum, effectiveDisplayedBg(el))));
     if (iconStatsCache.has(url)) decide(iconStatsCache.get(url));
     else getIconStats(url).then(decide);
+  }
+
+  // ── Backdrop images ──────────────────────────────────────────────────────
+  // An <img> is counter-inverted so photos keep their true colours. But an
+  // image can also be a section's BACKGROUND: it fills a container whose text
+  // is painted over it. A LIGHT one then stays a huge light surface, under text
+  // the page filter has turned light (microsoft.com's hero: a pale abstract
+  // image, 1280×1883, behind a dark headline → light on light). Such an image
+  // is tagged to invert WITH the theme, like a large light canvas.
+  //
+  // Deliberately narrow, since inverting a picture makes a colour-negative:
+  //   • large (the canvas rule's share of the viewport);
+  //   • the text painted over it is dark-only — a backdrop the site designed
+  //     as light. Light text means a dark picture (a hero photo): kept;
+  //   • its pixels are readable and show a FEATURELESS light wash: every pixel
+  //     light and no edge anywhere. A product shot on a pale ground is light
+  //     nearly everywhere too, but has edges — apple.com's tiles are exactly
+  //     that, behind dark text, and must keep their colours. Measured on a
+  //     64px downscale: microsoft.com's wash steps by at most 0.02 between
+  //     neighbouring pixels, apple.com's product shots by 0.4–0.75.
+  //     Unreadable (cross-origin, no CORS) → kept.
+
+  // How much larger than the image an ancestor may be and still count as the
+  // frame the image fills.
+  const BACKDROP_FRAME_SLACK = 1.1;
+  // Largest luma step between neighbouring sampled pixels of a featureless wash.
+  const BACKDROP_MAX_EDGE = 0.1;
+  const BACKDROP_SAMPLE_DIM = 64;
+
+  const backdropStatsCache = new Map();   // url -> stats|null
+  const backdropStatsPending = new Map(); // url -> Promise
+  function getBackdropStats(url) {
+    if (backdropStatsPending.has(url)) return backdropStatsPending.get(url);
+    const p = sampleImage(url, BACKDROP_SAMPLE_DIM).then(v => {
+      backdropStatsCache.set(url, v); backdropStatsPending.delete(url); return v;
+    });
+    backdropStatsPending.set(url, p);
+    return p;
+  }
+
+  // The highest ancestor the image (nearly) fills — the frame whose content is
+  // painted over it. Null when the image fills nothing but itself.
+  function backdropFrame(img, r) {
+    const maxArea = r.width * r.height * BACKDROP_FRAME_SLACK;
+    let frame = null, cur = img.parentElement, hops = 0;
+    while (cur && cur !== document.body && cur !== document.documentElement && hops++ < 12) {
+      let cr;
+      try { cr = cur.getBoundingClientRect(); } catch (_) { break; }
+      if (cr.width * cr.height > maxArea) break;
+      frame = cur;
+      cur = cur.parentElement;
+    }
+    return frame;
+  }
+
+  function classifyBackdropImg(el) {
+    const clear = () => { if (el.hasAttribute(INVERT_MEDIA_ATTR)) el.removeAttribute(INVERT_MEDIA_ATTR); };
+    // Inside a counter-inverted wrapper the image doesn't render through the
+    // page filter alone — the rule below would be wrong there.
+    if (hasCounterInvertedAncestor(el)) { clear(); return; }
+    let r;
+    try { r = el.getBoundingClientRect(); } catch (_) { return; }
+    const vw = window.innerWidth | 0, vh = window.innerHeight | 0;
+    if (vw < 50 || vh < 50) return;
+    if (r.width * r.height < vw * vh * MAP_CANVAS_MIN_AREA_RATIO) { clear(); return; }
+    const frame = backdropFrame(el, r);
+    if (!frame) { clear(); return; }
+    let fcs;
+    try { fcs = getComputedStyle(frame); } catch (_) { return; }
+    const tone = surfaceTextTone(frame, fcs, { el, rect: r });
+    if (!tone.dark || tone.light) { clear(); return; }
+    const url = el.currentSrc || el.getAttribute("src");
+    if (!url) { clear(); return; }
+    const decide = s => {
+      if (!el.isConnected || !themeActive()) return;
+      if (s && s.minLuma >= 0.5 && s.maxEdge <= BACKDROP_MAX_EDGE) {
+        if (!el.hasAttribute(INVERT_MEDIA_ATTR)) el.setAttribute(INVERT_MEDIA_ATTR, "1");
+      } else clear();
+    };
+    if (backdropStatsCache.has(url)) decide(backdropStatsCache.get(url));
+    else getBackdropStats(url).then(decide);
   }
 
   // ── Colour-coded glyphs ──────────────────────────────────────────────────
@@ -1566,6 +1979,12 @@
       // A large LIGHT canvas (the Google Maps map surface) is darkened WITH the
       // theme instead of kept true-colour; a dark canvas keeps its true colours.
       if (el.tagName === "CANVAS") classifyMapCanvas(el, false);
+      // Likewise a large, featureless light <img> that is a section's backdrop
+      // behind dark text. Never under "force natural images".
+      if (el.tagName === "IMG") {
+        if (!forceImages) classifyBackdropImg(el);
+        else if (el.hasAttribute(INVERT_MEDIA_ATTR)) el.removeAttribute(INVERT_MEDIA_ATTR);
+      }
       // A positioned high-z overlay nested in a counter-filtered wrapper is
       // trapped by the wrapper's filter-induced stacking context — lift the
       // wrapper so the overlay still paints above later-DOM content
@@ -1573,7 +1992,11 @@
       maybeLiftTrappedOverlay(el, cs);
       // An accent glyph is fully rendered by the accent filter; a darknative
       // counter-invert on top would fight it.
-      if (!el.hasAttribute(ACCENT_ATTR) && tagNativeDarkBg(el, cs)) return;
+      if (!el.hasAttribute(ACCENT_ATTR) && tagNativeDarkBg(el, cs)) {
+        // The counter-invert restores its pseudo-elements with it.
+        if (el.hasAttribute(PSEUDO_BG_ATTR)) el.removeAttribute(PSEUDO_BG_ATTR);
+        return;
+      }
       if (el.hasAttribute(NATIVE_DARK_ATTR)) {
         el.removeAttribute(NATIVE_DARK_ATTR);
       }
@@ -1584,6 +2007,8 @@
         revertZLiftOn(el);
       }
       preLightenIfSaturated(el, cs);
+      // A dark surface painted by ::before / ::after keeps its colours.
+      classifyPseudoBg(el, cs);
       // Last: rescue text that still renders dark-on-dark after all the
       // tagging above has settled this element's (and its ancestors') filters.
       rescueTextColor(el, cs);
@@ -1610,6 +2035,29 @@
       // web components). Recurse to re-invert it.
       if (el.shadowRoot) processShadowRoot(el.shadowRoot);
     }
+  }
+
+  // Content arriving inside a counter-inverted [bg] container can change what
+  // that container IS — an empty image panel (a loading state) becomes a
+  // text-bearing content surface (see isLightContentSurface) — with no
+  // class/style mutation on the container itself to trigger a re-process.
+  // Gather the tagged ancestors of a newly added node into `out` so the caller
+  // re-checks each of them once.
+  function collectBgAncestors(node, out) {
+    let cur = node.parentElement;
+    while (cur && cur !== document.documentElement) {
+      if (cur.hasAttribute(BG_IMAGE_ATTR)) out.add(cur);
+      cur = cur.parentElement;
+    }
+  }
+
+  // Re-check one such container. When its tag drops, its subtree was
+  // classified under the other inversion parity (text rescue, accent fills,
+  // light icons) → classify it again.
+  function recheckBgContainer(el) {
+    if (!el.isConnected || !el.hasAttribute(BG_IMAGE_ATTR)) return;
+    processElement(el);
+    if (!el.hasAttribute(BG_IMAGE_ATTR)) markBackgroundImageElements(el);
   }
 
   // ── Shadow DOM re-inversion ──────────────────────────────────────────────
@@ -1900,7 +2348,7 @@
   // rewrote inline style are restored by revertPreLightened / revertZLifts.)
   const CLASS_TAGS = [
     BG_IMAGE_ATTR, BG_ICON_ATTR, NATIVE_DARK_ATTR, LIGHT_ICON_ATTR,
-    INVERT_MEDIA_ATTR, ACCENT_ATTR
+    INVERT_MEDIA_ATTR, ACCENT_ATTR, PSEUDO_BG_ATTR
   ];
   const CLASS_TAGS_SEL = CLASS_TAGS.map(a => `[${a}]`).join(",");
 
@@ -1926,6 +2374,8 @@
     classifyMapCanvas,
     reclassifyLargeCanvases,
     markBackgroundImageElements,
+    collectBgAncestors,
+    recheckBgContainer,
     processShadowRoot,
     clearShadowStyles,
     clearTags,
